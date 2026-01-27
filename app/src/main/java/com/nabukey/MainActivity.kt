@@ -1,0 +1,45 @@
+package com.nabukey
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import com.nabukey.permissions.VOICE_SATELLITE_PERMISSIONS
+import com.nabukey.ui.MainNavHost
+import com.nabukey.ui.services.ServiceViewModel
+import com.nabukey.ui.services.rememberLaunchWithMultiplePermissions
+import com.nabukey.ui.theme.NabuKeyTheme
+import dagger.hilt.android.AndroidEntryPoint
+
+@AndroidEntryPoint
+class MainActivity : ComponentActivity() {
+    private var created = false
+    private val serviceViewModel: ServiceViewModel by viewModels()
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        setContent {
+            NabuKeyTheme {
+                OnCreate()
+                MainNavHost()
+            }
+        }
+    }
+
+    @Composable
+    fun OnCreate() {
+        val permissionsLauncher = rememberLaunchWithMultiplePermissions(
+            onPermissionGranted = { serviceViewModel.autoStartServiceIfRequired() }
+        )
+        DisposableEffect(Unit) {
+            permissionsLauncher.launch(VOICE_SATELLITE_PERMISSIONS)
+            onDispose { }
+        }
+    }
+}
