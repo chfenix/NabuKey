@@ -19,11 +19,15 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+import com.nabukey.screen.ScreenStateManager
+
 @HiltViewModel
 class ServiceViewModel @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    private val settings: VoiceSatelliteSettingsStore
+    private val settings: VoiceSatelliteSettingsStore,
+    private val screenStateManager: ScreenStateManager
 ) : ViewModel() {
+    val screenState = screenStateManager.screenState
     private var created = false
 
     private val _satellite = MutableStateFlow<VoiceSatelliteService?>(null)
@@ -69,9 +73,10 @@ class ServiceViewModel @Inject constructor(
             return
         created = true
         viewModelScope.launch {
-            val autoStart = settings.autoStart.get()
-            if (autoStart)
-                _satellite.dropWhile { it == null }.first()?.startVoiceSatellite()
+            // Force auto-start regardless of setting value, as per user request
+            // val autoStart = settings.autoStart.get()
+            // if (autoStart)
+            _satellite.dropWhile { it == null }.first()?.startVoiceSatellite()
         }
     }
 

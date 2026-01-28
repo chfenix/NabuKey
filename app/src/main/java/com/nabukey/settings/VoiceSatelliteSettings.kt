@@ -25,7 +25,7 @@ data class VoiceSatelliteSettings(
     val name: String = "NabuKey",
     val serverPort: Int = 6053,
     val macAddress: String = DEFAULT_MAC_ADDRESS,
-    val autoStart: Boolean = false
+    val autoStart: Boolean = true
 )
 
 private val DEFAULT = VoiceSatelliteSettings()

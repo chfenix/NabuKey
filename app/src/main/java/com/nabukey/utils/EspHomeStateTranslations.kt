@@ -10,6 +10,7 @@ import com.nabukey.esphome.Stopped
 import com.nabukey.esphome.voicesatellite.Listening
 import com.nabukey.esphome.voicesatellite.Processing
 import com.nabukey.esphome.voicesatellite.Responding
+import com.nabukey.esphome.voicesatellite.Waking
 
 fun EspHomeState.translate(resources: Resources): String = when (this) {
     is Stopped -> resources.getString(R.string.satellite_state_stopped)
@@ -18,6 +19,7 @@ fun EspHomeState.translate(resources: Resources): String = when (this) {
     is Listening -> resources.getString(R.string.satellite_state_listening)
     is Processing -> resources.getString(R.string.satellite_state_processing)
     is Responding -> resources.getString(R.string.satellite_state_responding)
+    is Waking -> resources.getString(R.string.satellite_state_waking)
     is ServerError -> resources.getString(R.string.satellite_state_server_error, message)
     else -> this.toString()
 }

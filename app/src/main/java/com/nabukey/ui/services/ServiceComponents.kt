@@ -3,7 +3,10 @@ package com.nabukey.ui.services
 import androidx.activity.compose.ManagedActivityResultLauncher
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +43,8 @@ fun StartStopVoiceSatellite(viewModel: ServiceViewModel = hiltViewModel()) {
             Stopped
         )
 
+        // modification: Show Eyes if running
+        // Reverted to standard UI, Eyes are now handled in HomeScreen
         val resources = LocalResources.current
         Text(
             text = remember(serviceState) { serviceState.translate(resources) },

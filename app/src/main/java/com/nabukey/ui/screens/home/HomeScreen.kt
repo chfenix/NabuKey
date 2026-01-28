@@ -5,6 +5,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -28,11 +31,90 @@ import androidx.navigation.NavController
 import com.nabukey.R
 import com.nabukey.ui.Settings
 import com.nabukey.ui.services.StartStopVoiceSatellite
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nabukey.ui.services.ServiceViewModel
+import com.nabukey.esphome.Stopped
+import com.nabukey.ui.components.Eyes
+import androidx.compose.foundation.clickable
+import kotlinx.coroutines.flow.flowOf
+import com.nabukey.esphome.voicesatellite.Listening
+import com.nabukey.esphome.voicesatellite.Processing
+import com.nabukey.esphome.voicesatellite.Responding
+import com.nabukey.esphome.voicesatellite.Waking
+import com.nabukey.screen.ScreenState
+import com.nabukey.utils.translate
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(navController: NavController) {
-    Scaffold(
+fun HomeScreen(
+    navController: NavController,
+    viewModel: ServiceViewModel = hiltViewModel()
+) {
+    val service by viewModel.satellite.collectAsStateWithLifecycle(initialValue = null)
+    val currentService = service
+    val serviceState by (currentService?.voiceSatelliteState ?: flowOf(Stopped))
+        .collectAsStateWithLifecycle(initialValue = Stopped)
+
+    if (serviceState !is Stopped && currentService != null) {
+        // Full Screen Face Mode with Status Overlay
+        Box(modifier = Modifier.fillMaxSize()) {
+            val statusColor = when (serviceState) {
+                is com.nabukey.esphome.Connected -> androidx.compose.ui.graphics.Color.Green
+                is com.nabukey.esphome.Disconnected, is com.nabukey.esphome.ServerError -> androidx.compose.ui.graphics.Color.Red
+                else -> androidx.compose.ui.graphics.Color.Yellow
+            }
+            
+            // Observe screen state
+            val screenState by viewModel.screenState.collectAsStateWithLifecycle()
+
+            // Map combined states to ExpressionState
+            val expressionState = remember(serviceState, screenState) {
+                when {
+                    // Critical service states override screen state (except sleeping?)
+                    // If we are talking/listening, we should probably look alert even if screen was dim
+                    // But ScreenManager handles waking up the screen, so screenState should become ACTIVE/WAKING.
+                    
+                    // Priority 1: Service Activities
+                    serviceState is Listening -> com.nabukey.ui.components.expression.ExpressionState.Listening
+                    serviceState is Processing -> com.nabukey.ui.components.expression.ExpressionState.Thinking
+                    serviceState is Responding -> com.nabukey.ui.components.expression.ExpressionState.Speaking
+                    
+                    // Priority 2: Screen States (Idle/Sleeping)
+                    // If service is Connected/Stopped but screen is Sleeping -> Sleep
+                    screenState == ScreenState.SLEEPING -> com.nabukey.ui.components.expression.ExpressionState.Sleeping
+                    
+                    // Priority 3: Default Active
+                    else -> com.nabukey.ui.components.expression.ExpressionState.Idle
+                }
+            }
+            
+            // 使用新的 FaceView 组件
+            com.nabukey.ui.components.FaceView(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable { currentService.stopVoiceSatellite() },
+                expressionState = expressionState,
+                eyeColor = androidx.compose.ui.graphics.Color.White
+            )
+            
+            // Status indicator dot in top-right corner
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                contentAlignment = androidx.compose.ui.Alignment.TopEnd
+            ) {
+                Canvas(modifier = Modifier.size(20.dp)) {
+                    drawCircle(
+                        color = statusColor,
+                        radius = size.minDimension / 2
+                    )
+                }
+            }
+        }
+    } else {
+        Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
             CenterAlignedTopAppBar(
@@ -75,7 +157,8 @@ fun HomeScreen(navController: NavController) {
             horizontalAlignment = CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            StartStopVoiceSatellite()
+            StartStopVoiceSatellite(viewModel)
         }
+    }
     }
 }

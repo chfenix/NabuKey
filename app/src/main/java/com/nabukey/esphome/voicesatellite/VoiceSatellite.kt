@@ -35,6 +35,7 @@ import kotlin.coroutines.CoroutineContext
 data object Listening : EspHomeState
 data object Responding : EspHomeState
 data object Processing : EspHomeState
+data object Waking : EspHomeState
 
 class VoiceSatellite(
     coroutineContext: CoroutineContext,
@@ -216,6 +217,7 @@ class VoiceSatellite(
         isContinueConversation: Boolean = false
     ) {
         Log.d(TAG, "Wake satellite")
+        _state.value = Waking
         player.duck()
         pipeline = createPipeline()
         if (!isContinueConversation) {

@@ -13,10 +13,29 @@ import com.nabukey.ui.MainNavHost
 import com.nabukey.ui.services.ServiceViewModel
 import com.nabukey.ui.services.rememberLaunchWithMultiplePermissions
 import com.nabukey.ui.theme.NabuKeyTheme
+import android.view.MotionEvent
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import com.nabukey.esphome.voicesatellite.Listening
+import com.nabukey.esphome.voicesatellite.Processing
+import com.nabukey.esphome.voicesatellite.Responding
+import com.nabukey.esphome.voicesatellite.Waking
+import com.nabukey.screen.ScreenStateManager
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    @Inject
+    lateinit var screenStateManager: ScreenStateManager
+
     private var created = false
     private val serviceViewModel: ServiceViewModel by viewModels()
 
@@ -24,10 +43,47 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        hideSystemUI()
+
+        screenStateManager.attach(this)
+        observeVoiceState()
+
         setContent {
             NabuKeyTheme {
                 OnCreate()
                 MainNavHost()
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        screenStateManager.detach()
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
+        screenStateManager.userInteraction()
+        return super.dispatchTouchEvent(ev)
+    }
+
+    private fun observeVoiceState() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                serviceViewModel.satellite
+                    .flatMapLatest { service ->
+                        service?.voiceSatelliteState ?: emptyFlow()
+                    }
+                    .collect { state ->
+                        when (state) {
+                            is Listening, is Processing, is Responding, is Waking -> {
+                                screenStateManager.onConversationActive()
+                            }
+                            else -> {
+                                // Other states don't force wake, but don't force sleep either
+                                // implicit handling via idle timer
+                            }
+                        }
+                    }
             }
         }
     }
@@ -41,5 +97,14 @@ class MainActivity : ComponentActivity() {
             permissionsLauncher.launch(VOICE_SATELLITE_PERMISSIONS)
             onDispose { }
         }
+    }
+
+    private fun hideSystemUI() {
+        val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
+        // Configure the behavior of the hidden system bars
+        windowInsetsController.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        // Hide both the status bar and the navigation bar
+        windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
     }
 }
