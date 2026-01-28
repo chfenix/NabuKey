@@ -3,10 +3,13 @@ package com.nabukey.ui.screens.home
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
@@ -85,31 +88,67 @@ fun HomeScreen(
                     screenState == ScreenState.SLEEPING -> com.nabukey.ui.components.expression.ExpressionState.Sleeping
                     
                     // Priority 3: Default Active
-                    else -> com.nabukey.ui.components.expression.ExpressionState.Idle
+                    else -> com.nabukey.ui.components.expression.ExpressionState.Idle()
                 }
             }
             
-            // 使用新的 FaceView 组件
-            com.nabukey.ui.components.FaceView(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clickable { currentService.stopVoiceSatellite() },
-                expressionState = expressionState,
-                eyeColor = androidx.compose.ui.graphics.Color.White
-            )
+            // 使用新的 FaceView 组件 with zone-based touch
+            Box(modifier = Modifier.fillMaxSize()) {
+                com.nabukey.ui.components.FaceView(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            detectTapGestures { offset ->
+                                // Define top-right corner zone (150dp x 150dp from top-right)
+                                val cornerSize = 150.dp.toPx()
+                                val isTopRightCorner = offset.x > size.width - cornerSize && 
+                                                       offset.y < cornerSize
+                                
+                                if (isTopRightCorner) {
+                                    // Stop service and return to idle screen
+                                    currentService.stopVoiceSatellite()
+                                } else {
+                                    // Just stop current conversation
+                                    currentService.stopConversation()
+                                }
+                            }
+                        },
+                    expressionState = expressionState,
+                    eyeColor = androidx.compose.ui.graphics.Color.White
+                )
+            }
             
-            // Status indicator dot in top-right corner
+            // Status indicator dot and settings button in top-right corner
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(24.dp),
                 contentAlignment = androidx.compose.ui.Alignment.TopEnd
             ) {
-                Canvas(modifier = Modifier.size(20.dp)) {
-                    drawCircle(
-                        color = statusColor,
-                        radius = size.minDimension / 2
-                    )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                ) {
+                    // Settings button
+                    IconButton(
+                        onClick = { navController.navigate(Settings) },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.more_vert_24px),
+                            contentDescription = stringResource(R.string.label_settings),
+                            tint = androidx.compose.ui.graphics.Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    
+                    // Status indicator dot
+                    Canvas(modifier = Modifier.size(20.dp)) {
+                        drawCircle(
+                            color = statusColor,
+                            radius = size.minDimension / 2
+                        )
+                    }
                 }
             }
         }

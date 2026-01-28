@@ -23,7 +23,7 @@ import com.nabukey.ui.components.expression.rememberExpressionAnimator
  * 使用方法：
  * ```
  * FaceView(
- *     expressionState = ExpressionState.Idle,
+ *     expressionState = ExpressionState.Idle(),
  *     eyeColor = Color.White
  * )
  * ```
@@ -31,7 +31,7 @@ import com.nabukey.ui.components.expression.rememberExpressionAnimator
 @Composable
 fun FaceView(
     modifier: Modifier = Modifier,
-    expressionState: ExpressionState = ExpressionState.Idle,
+    expressionState: ExpressionState = ExpressionState.Idle(),
     eyeColor: Color = Color.White,
     backgroundColor: Color = Color.Black
 ) {
