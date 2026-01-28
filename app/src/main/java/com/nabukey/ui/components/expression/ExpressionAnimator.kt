@@ -38,27 +38,87 @@ sealed class ExpressionAnimator {
     abstract val eyeScale: Float
     
     /**
-     * 待机状态 - 随机眨眼 + 四处看
+     * 待机状态 - 随机眨眼 + 四处看 + 表情循环
      */
     class Idle(
         private val leftEyeAnim: Animatable<Float, *>,
         private val rightEyeAnim: Animatable<Float, *>,
-        private val eyeOffsetAnim: Animatable<Float, *>
+        private val eyeOffsetAnim: Animatable<Float, *>,
+        private val cycleExpressions: Boolean = true
     ) : ExpressionAnimator() {
         override val leftEyeScaleY: Float get() = leftEyeAnim.value
         override val rightEyeScaleY: Float get() = rightEyeAnim.value
         override val eyeOffsetX: Float get() = eyeOffsetAnim.value
         override val eyeScale: Float = 1f
         
+        // 待机表情池:用于循环显示的表情
+        private val idleExpressionPool = listOf(
+            IdleExpression.NORMAL,
+            IdleExpression.SLIGHT_SMILE,
+            IdleExpression.CURIOUS
+        )
+        private var currentExpressionIndex = 0
+        private var lastExpressionChangeTime = 0L
+        private val expressionChangeDuration = 30000L // 30秒切换一次表情
+        
         suspend fun animate() {
+            lastExpressionChangeTime = System.currentTimeMillis()
+            
             while (true) {
+                // 检查是否需要切换表情
+                if (cycleExpressions && 
+                    System.currentTimeMillis() - lastExpressionChangeTime > expressionChangeDuration) {
+                    changeExpression()
+                    lastExpressionChangeTime = System.currentTimeMillis()
+                }
+                
                 delay(Random.nextLong(2000, 6000))
                 
-                // 30% 概率四处看，70% 概率眨眼
+                // 30% 概率四处看,70% 概率眨眼
                 if (Random.nextFloat() < 0.3f) {
                     lookAround()
                 } else {
                     blink()
+                }
+            }
+        }
+        
+        private suspend fun changeExpression() {
+            // 循环切换到下一个表情
+            currentExpressionIndex = (currentExpressionIndex + 1) % idleExpressionPool.size
+            val expression = idleExpressionPool[currentExpressionIndex]
+            
+            // 根据表情类型执行相应的动画
+            when (expression) {
+                IdleExpression.NORMAL -> {
+                    // 恢复正常表情
+                    eyeOffsetAnim.animateTo(0f, animationSpec = tween(500))
+                }
+                IdleExpression.SLIGHT_SMILE -> {
+                    // 微笑:眼睛稍微缩小
+                    kotlinx.coroutines.coroutineScope {
+                        launch {
+                            leftEyeAnim.animateTo(0.9f, animationSpec = tween(500))
+                        }
+                        launch {
+                            rightEyeAnim.animateTo(0.9f, animationSpec = tween(500))
+                        }
+                    }
+                    delay(500)
+                    kotlinx.coroutines.coroutineScope {
+                        launch {
+                            leftEyeAnim.animateTo(1f, animationSpec = tween(500))
+                        }
+                        launch {
+                            rightEyeAnim.animateTo(1f, animationSpec = tween(500))
+                        }
+                    }
+                }
+                IdleExpression.CURIOUS -> {
+                    // 好奇:稍微向一侧看
+                    eyeOffsetAnim.animateTo(20f, animationSpec = tween(500))
+                    delay(2000)
+                    eyeOffsetAnim.animateTo(0f, animationSpec = tween(500))
                 }
             }
         }
@@ -84,13 +144,22 @@ sealed class ExpressionAnimator {
             val holdDuration = 1000L
             val offset = 40f // 像素偏移量
             
-            // 随机方向：左或右
+            // 随机方向:左或右
             val direction = if (Random.nextBoolean()) 1f else -1f
             val targetOffset = offset * direction
 
             eyeOffsetAnim.animateTo(targetOffset, animationSpec = tween(lookDuration))
             delay(holdDuration)
             eyeOffsetAnim.animateTo(0f, animationSpec = tween(lookDuration))
+        }
+        
+        /**
+         * 待机表情类型
+         */
+        private enum class IdleExpression {
+            NORMAL,      // 正常
+            SLIGHT_SMILE, // 微笑
+            CURIOUS      // 好奇
         }
     }
 
@@ -194,6 +263,170 @@ sealed class ExpressionAnimator {
             )
         }
     }
+    
+    // ===== 情绪表情动画 =====
+    
+    /**
+     * 愤怒表情 - 眉毛下压,眼睛缩小
+     */
+    class Angry(
+        private val leftEyeAnim: Animatable<Float, *>,
+        private val rightEyeAnim: Animatable<Float, *>,
+        private val eyeOffsetAnim: Animatable<Float, *>
+    ) : ExpressionAnimator() {
+        override val leftEyeScaleY: Float get() = leftEyeAnim.value
+        override val rightEyeScaleY: Float get() = rightEyeAnim.value
+        override val eyeOffsetX: Float get() = eyeOffsetAnim.value
+        override val eyeScale: Float = 0.8f
+        
+        suspend fun animate() {
+            // 眼睛缩小并抖动
+            kotlinx.coroutines.coroutineScope {
+                launch {
+                    leftEyeAnim.animateTo(0.7f, animationSpec = tween(300))
+                }
+                launch {
+                    rightEyeAnim.animateTo(0.7f, animationSpec = tween(300))
+                }
+            }
+            
+            // 轻微抖动
+            while (true) {
+                eyeOffsetAnim.animateTo(5f, animationSpec = tween(100))
+                eyeOffsetAnim.animateTo(-5f, animationSpec = tween(100))
+            }
+        }
+    }
+    
+    /**
+     * 兴奋表情 - 眼睛放大,快速眨动
+     */
+    class Excited(
+        private val leftEyeAnim: Animatable<Float, *>,
+        private val rightEyeAnim: Animatable<Float, *>,
+        private val scaleAnim: Animatable<Float, *>
+    ) : ExpressionAnimator() {
+        override val leftEyeScaleY: Float get() = leftEyeAnim.value
+        override val rightEyeScaleY: Float get() = rightEyeAnim.value
+        override val eyeOffsetX: Float = 0f
+        override val eyeScale: Float get() = scaleAnim.value
+        
+        suspend fun animate() {
+            // 眼睛放大
+            scaleAnim.animateTo(1.2f, animationSpec = tween(200))
+            
+            // 快速眨眼
+            while (true) {
+                kotlinx.coroutines.coroutineScope {
+                    launch {
+                        leftEyeAnim.animateTo(0.3f, animationSpec = tween(80))
+                        leftEyeAnim.animateTo(1f, animationSpec = tween(80))
+                    }
+                    launch {
+                        rightEyeAnim.animateTo(0.3f, animationSpec = tween(80))
+                        rightEyeAnim.animateTo(1f, animationSpec = tween(80))
+                    }
+                }
+                delay(500)
+            }
+        }
+    }
+    
+    /**
+     * 恐惧表情 - 眼睛睁大,快速左右看
+     */
+    class Fear(
+        private val scaleAnim: Animatable<Float, *>,
+        private val offsetAnim: Animatable<Float, *>
+    ) : ExpressionAnimator() {
+        override val leftEyeScaleY: Float = 1f
+        override val rightEyeScaleY: Float = 1f
+        override val eyeOffsetX: Float get() = offsetAnim.value
+        override val eyeScale: Float get() = scaleAnim.value
+        
+        suspend fun animate() {
+            // 眼睛睁大
+            scaleAnim.animateTo(1.3f, animationSpec = tween(200))
+            
+            // 快速左右看
+            while (true) {
+                offsetAnim.animateTo(30f, animationSpec = tween(200))
+                offsetAnim.animateTo(-30f, animationSpec = tween(200))
+            }
+        }
+    }
+    
+    /**
+     * 悲伤表情 - 眼睛下垂,缓慢眨眼
+     */
+    class Sad(
+        private val leftEyeAnim: Animatable<Float, *>,
+        private val rightEyeAnim: Animatable<Float, *>
+    ) : ExpressionAnimator() {
+        override val leftEyeScaleY: Float get() = leftEyeAnim.value
+        override val rightEyeScaleY: Float get() = rightEyeAnim.value
+        override val eyeOffsetX: Float = 0f
+        override val eyeScale: Float = 0.9f
+        
+        suspend fun animate() {
+            // 眼睛微微闭合
+            kotlinx.coroutines.coroutineScope {
+                launch {
+                    leftEyeAnim.animateTo(0.7f, animationSpec = tween(500))
+                }
+                launch {
+                    rightEyeAnim.animateTo(0.7f, animationSpec = tween(500))
+                }
+            }
+            
+            // 缓慢眨眼
+            while (true) {
+                delay(3000)
+                kotlinx.coroutines.coroutineScope {
+                    launch {
+                        leftEyeAnim.animateTo(0.2f, animationSpec = tween(300))
+                        leftEyeAnim.animateTo(0.7f, animationSpec = tween(300))
+                    }
+                    launch {
+                        rightEyeAnim.animateTo(0.2f, animationSpec = tween(300))
+                        rightEyeAnim.animateTo(0.7f, animationSpec = tween(300))
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * 轻蔑表情 - 单眼眯起
+     */
+    class Disdain(
+        private val leftEyeAnim: Animatable<Float, *>,
+        private val rightEyeAnim: Animatable<Float, *>,
+        private val offsetAnim: Animatable<Float, *>
+    ) : ExpressionAnimator() {
+        override val leftEyeScaleY: Float get() = leftEyeAnim.value
+        override val rightEyeScaleY: Float get() = rightEyeAnim.value
+        override val eyeOffsetX: Float get() = offsetAnim.value
+        override val eyeScale: Float = 1f
+        
+        suspend fun animate() {
+            // 左眼眯起,右眼正常
+            kotlinx.coroutines.coroutineScope {
+                launch {
+                    leftEyeAnim.animateTo(0.5f, animationSpec = tween(300))
+                }
+                launch {
+                    rightEyeAnim.animateTo(1f, animationSpec = tween(300))
+                }
+            }
+            
+            // 稍微向一侧看
+            offsetAnim.animateTo(15f, animationSpec = tween(300))
+            
+            // 保持表情
+            delay(Long.MAX_VALUE)
+        }
+    }
 }
 
 /**
@@ -212,12 +445,27 @@ fun rememberExpressionAnimator(
     
     val animator = remember(state) {
         when (state) {
-            is ExpressionState.Idle -> ExpressionAnimator.Idle(leftEyeScaleY, rightEyeScaleY, eyeOffsetX)
+            is ExpressionState.Idle -> ExpressionAnimator.Idle(
+                leftEyeScaleY, 
+                rightEyeScaleY, 
+                eyeOffsetX,
+                state.cycleExpressions
+            )
             is ExpressionState.Listening -> ExpressionAnimator.Listening(eyeScale)
             is ExpressionState.Thinking -> ExpressionAnimator.Thinking(eyeOffsetX, eyeWidth)
             is ExpressionState.Speaking -> ExpressionAnimator.Speaking(scaleY)
-            is ExpressionState.Error -> ExpressionAnimator.Idle(leftEyeScaleY, rightEyeScaleY, eyeOffsetX)
+            is ExpressionState.Error -> ExpressionAnimator.Idle(
+                leftEyeScaleY, 
+                rightEyeScaleY, 
+                eyeOffsetX,
+                false
+            )
             is ExpressionState.Sleeping -> ExpressionAnimator.Sleeping(leftEyeScaleY, rightEyeScaleY)
+            is ExpressionState.Angry -> ExpressionAnimator.Angry(leftEyeScaleY, rightEyeScaleY, eyeOffsetX)
+            is ExpressionState.Excited -> ExpressionAnimator.Excited(leftEyeScaleY, rightEyeScaleY, eyeScale)
+            is ExpressionState.Fear -> ExpressionAnimator.Fear(eyeScale, eyeOffsetX)
+            is ExpressionState.Sad -> ExpressionAnimator.Sad(leftEyeScaleY, rightEyeScaleY)
+            is ExpressionState.Disdain -> ExpressionAnimator.Disdain(leftEyeScaleY, rightEyeScaleY, eyeOffsetX)
         }
     }
     
@@ -237,6 +485,11 @@ fun rememberExpressionAnimator(
             is ExpressionAnimator.Thinking -> animator.animate()
             is ExpressionAnimator.Speaking -> animator.animate()
             is ExpressionAnimator.Sleeping -> animator.animate()
+            is ExpressionAnimator.Angry -> animator.animate()
+            is ExpressionAnimator.Excited -> animator.animate()
+            is ExpressionAnimator.Fear -> animator.animate()
+            is ExpressionAnimator.Sad -> animator.animate()
+            is ExpressionAnimator.Disdain -> animator.animate()
         }
     }
     
