@@ -51,48 +51,49 @@ sealed class ExpressionAnimator {
         override val eyeOffsetX: Float get() = eyeOffsetAnim.value
         override val eyeScale: Float = 1f
         
-        // 待机表情池:用于循环显示的表情
+        // 待机表情池:用于随机显示的表情
         private val idleExpressionPool = listOf(
             IdleExpression.NORMAL,
             IdleExpression.SLIGHT_SMILE,
             IdleExpression.CURIOUS
         )
-        private var currentExpressionIndex = 0
-        private var lastExpressionChangeTime = 0L
-        private val expressionChangeDuration = 30000L // 30秒切换一次表情
         
         suspend fun animate() {
-            lastExpressionChangeTime = System.currentTimeMillis()
-            
             while (true) {
-                // 检查是否需要切换表情
-                if (cycleExpressions && 
-                    System.currentTimeMillis() - lastExpressionChangeTime > expressionChangeDuration) {
-                    changeExpression()
-                    lastExpressionChangeTime = System.currentTimeMillis()
-                }
-                
                 delay(Random.nextLong(2000, 6000))
                 
-                // 30% 概率四处看,70% 概率眨眼
-                if (Random.nextFloat() < 0.3f) {
-                    lookAround()
+                if (cycleExpressions) {
+                    // 15% 概率触发表情变化
+                    if (Random.nextFloat() < 0.15f) {
+                        showRandomExpression()
+                    } else {
+                        // 30% 概率四处看,70% 概率眨眼
+                        if (Random.nextFloat() < 0.3f) {
+                            lookAround()
+                        } else {
+                            blink()
+                        }
+                    }
                 } else {
-                    blink()
+                    // 不启用表情循环时，只眨眼和四处看
+                    if (Random.nextFloat() < 0.3f) {
+                        lookAround()
+                    } else {
+                        blink()
+                    }
                 }
             }
         }
         
-        private suspend fun changeExpression() {
-            // 循环切换到下一个表情
-            currentExpressionIndex = (currentExpressionIndex + 1) % idleExpressionPool.size
-            val expression = idleExpressionPool[currentExpressionIndex]
+        private suspend fun showRandomExpression() {
+            // 随机选择一个表情
+            val expression = idleExpressionPool.random()
             
             // 根据表情类型执行相应的动画
             when (expression) {
                 IdleExpression.NORMAL -> {
-                    // 恢复正常表情
-                    eyeOffsetAnim.animateTo(0f, animationSpec = tween(500))
+                    // 正常表情：快速眨眼
+                    blink()
                 }
                 IdleExpression.SLIGHT_SMILE -> {
                     // 微笑:眼睛稍微缩小
@@ -104,7 +105,7 @@ sealed class ExpressionAnimator {
                             rightEyeAnim.animateTo(0.9f, animationSpec = tween(500))
                         }
                     }
-                    delay(500)
+                    delay(1500) // 保持微笑1.5秒
                     kotlinx.coroutines.coroutineScope {
                         launch {
                             leftEyeAnim.animateTo(1f, animationSpec = tween(500))
@@ -115,9 +116,10 @@ sealed class ExpressionAnimator {
                     }
                 }
                 IdleExpression.CURIOUS -> {
-                    // 好奇:稍微向一侧看
-                    eyeOffsetAnim.animateTo(20f, animationSpec = tween(500))
-                    delay(2000)
+                    // 好奇:随机向左或右看
+                    val direction = if (Random.nextBoolean()) 1f else -1f
+                    eyeOffsetAnim.animateTo(20f * direction, animationSpec = tween(500))
+                    delay(1500) // 保持好奇1.5秒
                     eyeOffsetAnim.animateTo(0f, animationSpec = tween(500))
                 }
             }
