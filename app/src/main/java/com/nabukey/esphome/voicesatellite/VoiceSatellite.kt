@@ -212,10 +212,12 @@ class VoiceSatellite(
         }
     }
 
+    private var lastWakeTime: Long = 0
     private suspend fun wakeSatellite(
         wakeWordPhrase: String = "",
         isContinueConversation: Boolean = false
     ) {
+        lastWakeTime = System.currentTimeMillis()
         Log.d(TAG, "Wake satellite")
         _state.value = Waking
         player.duck()
@@ -247,6 +249,13 @@ class VoiceSatellite(
         player.ttsPlayer.stop()
         _state.value = Connected
         sendMessage(voiceAssistantAnnounceFinished { })
+        // lastWakeTime = 0 // Optional: reset wake time if stopped manually? No, keep it.
+    }
+
+    fun stopConversation() {
+        scope.launch {
+            stopSatellite()
+        }
     }
 
     private fun stopTimer() {
@@ -260,10 +269,21 @@ class VoiceSatellite(
     private suspend fun onTtsFinished(continueConversation: Boolean) {
         Log.d(TAG, "TTS finished")
         sendMessage(voiceAssistantAnnounceFinished { })
-        if (continueConversation) {
-            Log.d(TAG, "Continuing conversation")
+        val forceContinuous = settingsStore.get().forceContinuousConversation
+        
+        // Prevent rapid loops: if session lasted less than 1.5 seconds, don't force restart
+        val sessionDuration = System.currentTimeMillis() - lastWakeTime
+        val isRapidFailure = sessionDuration < 1500
+
+        if (continueConversation || (forceContinuous && !isRapidFailure)) {
+            Log.d(TAG, "Continuing conversation (Server request: $continueConversation, Force: $forceContinuous, Duration: ${sessionDuration}ms)")
+            // If forced, we might want to ensure we don't loop forever on silence.
+            // But for now, just restart the pipeline.
             wakeSatellite(isContinueConversation = true)
         } else {
+            if (isRapidFailure && forceContinuous) {
+                 Log.w(TAG, "Continuous conversation aborted due to rapid failure (Duration: ${sessionDuration}ms)")
+            }
             player.unDuck()
             _state.value = Connected
         }

@@ -83,6 +83,11 @@ class VoiceSatelliteService() : LifecycleService() {
         }
     }
 
+    fun stopConversation() {
+        val satellite = _voiceSatellite.value
+        satellite?.stopConversation()
+    }
+
     override fun onCreate() {
         super.onCreate()
         wifiWakeLock.create(applicationContext, TAG)

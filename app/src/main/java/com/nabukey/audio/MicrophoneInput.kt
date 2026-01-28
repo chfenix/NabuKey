@@ -9,7 +9,7 @@ import androidx.annotation.RequiresPermission
 import java.nio.ByteBuffer
 
 class MicrophoneInput(
-    val audioSource: Int = DEFAULT_AUDIO_SOURCE,
+    val audioSource: Int = DEFAULT_AUDIO_SOURCE, // Reverted to default (VOICE_RECOGNITION)
     val sampleRateInHz: Int = DEFAULT_SAMPLE_RATE_IN_HZ,
     val channelConfig: Int = DEFAULT_CHANNEL_CONFIG,
     val audioFormat: Int = DEFAULT_AUDIO_FORMAT
@@ -18,12 +18,26 @@ class MicrophoneInput(
         AudioRecord.getMinBufferSize(sampleRateInHz, channelConfig, audioFormat)
     private val buffer = ByteBuffer.allocateDirect(bufferSize)
     private var audioRecord: AudioRecord? = null
+    private var aec: android.media.audiofx.AcousticEchoCanceler? = null
     val isRecording get() = audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING
 
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     fun start() {
         if (audioRecord == null) {
             audioRecord = createAudioRecord()
+            /*
+            // Disable AEC for now as it causes issues with VOICE_RECOGNITION on some devices
+            // and relying on FORCE_COMMUNICATION caused a loop.
+            try {
+                if (android.media.audiofx.AcousticEchoCanceler.isAvailable()) {
+                    aec = android.media.audiofx.AcousticEchoCanceler.create(audioRecord!!.audioSessionId)
+                    aec?.enabled = true
+                    Log.d(TAG, "AcousticEchoCanceler enabled: ${aec?.enabled}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to enable AEC", e)
+            }
+            */
         }
         if (!isRecording) {
             Log.d(TAG, "Starting microphone")
@@ -60,6 +74,8 @@ class MicrophoneInput(
     }
 
     override fun close() {
+        aec?.release()
+        aec = null
         audioRecord?.let {
             if (isRecording) {
                 it.stop()

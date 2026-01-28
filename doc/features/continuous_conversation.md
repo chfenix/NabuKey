@@ -1,6 +1,6 @@
 # 连续对话 (Continuous Conversation)
 
-> **状态**: 📋 规划中 | **优先级**: ⭐⭐⭐⭐ 高 | **复杂度**: 高 | **依赖**: 本地 STT
+> **状态**: 🚧 开发中 | **优先级**: ⭐⭐⭐⭐ 高 | **复杂度**: 高 | **依赖**: 本地 STT
 
 ## 概述
 
@@ -71,10 +71,10 @@ graph TD
 
 ## 实现任务
 
-- [ ] 验证 `VOICE_COMMUNICATION` 在目标设备上的 AEC 效果
-- [ ] 集成 `Silero VAD` (ONNX)
-- [ ] 实现 `ConversationManager` 状态机
-- [ ] 实现 Barge-in 逻辑（检测到新语音立即停止当前 TTS）
+- [x] 验证 `VOICE_COMMUNICATION` 在目标设备上的 AEC 效果 (代码已实现)
+- [x] 集成 `Silero VAD` (ONNX)
+- [x] 实现 `ConversationManager` 状态机
+- [x] 实现 Barge-in 逻辑（检测到新语音立即停止当前 TTS）
 - [ ] 优化 VAD 参数（阈值、静音时长）以适应中文语速
 - [ ] 添加 UI 反馈（监听中、思考中、说话中不同的表情/光效）
 

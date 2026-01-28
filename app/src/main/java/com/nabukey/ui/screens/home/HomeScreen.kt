@@ -63,9 +63,25 @@ fun HomeScreen(
         // Full Screen Face Mode with Status Overlay
         Box(modifier = Modifier.fillMaxSize()) {
             val statusColor = when (serviceState) {
+                // 未连接 -> 纯红色（错误）
+                is com.nabukey.esphome.Disconnected, 
+                is com.nabukey.esphome.ServerError -> androidx.compose.ui.graphics.Color(0xFFF44336) // Material Red
+                
+                // 待机 -> 绿色
                 is com.nabukey.esphome.Connected -> androidx.compose.ui.graphics.Color.Green
-                is com.nabukey.esphome.Disconnected, is com.nabukey.esphome.ServerError -> androidx.compose.ui.graphics.Color.Red
-                else -> androidx.compose.ui.graphics.Color.Yellow
+                
+                // 唤醒中/监听 -> 橙红色（录音灯）
+                is Waking,
+                is Listening -> androidx.compose.ui.graphics.Color(0xFFFF5722) // Material Deep Orange (录音红)
+                
+                // 处理中 -> 紫色（AI 思考）
+                is Processing -> androidx.compose.ui.graphics.Color(0xFF9C27B0) // Material Purple
+                
+                // 说话 -> 琥珀色/金色（温暖输出）
+                is Responding -> androidx.compose.ui.graphics.Color(0xFFFFC107) // Material Amber
+                
+                // 其他状态 -> 灰色（不应该出现）
+                else -> androidx.compose.ui.graphics.Color.Gray
             }
             
             // Observe screen state

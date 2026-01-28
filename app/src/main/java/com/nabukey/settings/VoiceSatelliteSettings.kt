@@ -25,7 +25,8 @@ data class VoiceSatelliteSettings(
     val name: String = "NabuKey",
     val serverPort: Int = 6053,
     val macAddress: String = DEFAULT_MAC_ADDRESS,
-    val autoStart: Boolean = true
+    val autoStart: Boolean = true,
+    val forceContinuousConversation: Boolean = false
 )
 
 private val DEFAULT = VoiceSatelliteSettings()
@@ -57,6 +58,11 @@ interface VoiceSatelliteSettingsStore : SettingsStore<VoiceSatelliteSettings> {
     val autoStart: SettingState<Boolean>
 
     /**
+     * Whether to force continuous conversation even if HA doesn't request it.
+     */
+    val forceContinuousConversation: SettingState<Boolean>
+
+    /**
      * Ensures that a mac address has been generated and persisted.
      */
     suspend fun ensureMacAddressIsSet()
@@ -80,6 +86,10 @@ class VoiceSatelliteSettingsStoreImpl @Inject constructor(@ApplicationContext co
 
     override val autoStart = SettingState(getFlow().map { it.autoStart }) { value ->
         update { it.copy(autoStart = value) }
+    }
+
+    override val forceContinuousConversation = SettingState(getFlow().map { it.forceContinuousConversation }) { value ->
+        update { it.copy(forceContinuousConversation = value) }
     }
 
     override suspend fun ensureMacAddressIsSet() {

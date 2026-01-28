@@ -70,6 +70,19 @@ fun VoiceSatelliteSettings(
             )
         }
         item {
+            SwitchSetting(
+                name = stringResource(R.string.label_voice_satellite_force_continuous),
+                description = stringResource(R.string.description_voice_satellite_force_continuous),
+                value = satelliteState?.forceContinuousConversation ?: false,
+                enabled = enabled,
+                onCheckedChange = {
+                    coroutineScope.launch {
+                        viewModel.saveForceContinuousConversation(it)
+                    }
+                }
+            )
+        }
+        item {
             SelectSetting(
                 name = stringResource(R.string.label_voice_satellite_wake_word),
                 selected = microphoneState?.wakeWord,

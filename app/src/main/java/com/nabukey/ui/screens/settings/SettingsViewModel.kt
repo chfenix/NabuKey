@@ -69,6 +69,10 @@ class SettingsViewModel @Inject constructor(
         satelliteSettingsStore.autoStart.set(autoStart)
     }
 
+    suspend fun saveForceContinuousConversation(enabled: Boolean) {
+        satelliteSettingsStore.forceContinuousConversation.set(enabled)
+    }
+
     suspend fun saveWakeWord(wakeWordId: String) {
         if (validateWakeWord(wakeWordId).isNullOrBlank()) {
             microphoneSettingsStore.wakeWord.set(wakeWordId)
