@@ -46,9 +46,13 @@ abstract class EspHomeDevice(
     entities: Iterable<Entity> = emptyList()
 ) : AutoCloseable {
     protected val server = Server()
-    protected val entities = entities.toList()
+    protected val entities = entities.toMutableList() // Changed to MutableList
     protected val _state = MutableStateFlow<EspHomeState>(Disconnected)
     val state = _state.asStateFlow()
+
+    protected fun addEntity(entity: Entity) {
+        entities.add(entity)
+    }
     protected val isSubscribedToEntityState = MutableStateFlow(false)
 
     protected val scope = CoroutineScope(

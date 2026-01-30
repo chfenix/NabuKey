@@ -66,6 +66,10 @@ class VoiceSatellitePlayer(
         ttsPlayer.play(timerFinishedSound.get(), onCompletion)
     }
 
+    suspend fun playExitSound(onCompletion: () -> Unit = {}) {
+        ttsPlayer.play("asset:///sounds/exit.flac", onCompletion)
+    }
+
     fun duck() {
         _isDucked = true
         if (!_muted.value) {

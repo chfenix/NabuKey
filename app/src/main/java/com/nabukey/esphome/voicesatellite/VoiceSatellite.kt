@@ -66,6 +66,19 @@ class VoiceSatellite(
 ) {
     private var timerFinished = false
     private var pipeline: VoicePipeline? = null
+    private var manualStop = false // New flag to prevent auto-restart
+
+    init {
+        addEntity(
+            com.nabukey.esphome.entities.ButtonEntity(
+                3,
+                "Stop Conversation",
+                "stop_conversation"
+            ) {
+                stopConversation(isManual = true)
+            }
+        )
+    }
 
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     override fun start() {
@@ -252,8 +265,20 @@ class VoiceSatellite(
         // lastWakeTime = 0 // Optional: reset wake time if stopped manually? No, keep it.
     }
 
-    fun stopConversation() {
+    fun stopConversation(isManual: Boolean = true) {
         scope.launch {
+            if (isManual) {
+                manualStop = true
+                if (_state.value == Responding) {
+                    Log.d(TAG, "Graceful stop requested: waiting for TTS to finish.")
+                    return@launch
+                }
+                // Immediate stop: play sound then stop
+                player.playExitSound {
+                   scope.launch { stopSatellite() }
+                }
+                return@launch
+            }
             stopSatellite()
         }
     }
@@ -275,12 +300,17 @@ class VoiceSatellite(
         val sessionDuration = System.currentTimeMillis() - lastWakeTime
         val isRapidFailure = sessionDuration < 1500
 
-        if (continueConversation || (forceContinuous && !isRapidFailure)) {
+        if (!manualStop && (continueConversation || (forceContinuous && !isRapidFailure))) {
             Log.d(TAG, "Continuing conversation (Server request: $continueConversation, Force: $forceContinuous, Duration: ${sessionDuration}ms)")
             // If forced, we might want to ensure we don't loop forever on silence.
             // But for now, just restart the pipeline.
             wakeSatellite(isContinueConversation = true)
         } else {
+            if (manualStop) {
+                Log.d(TAG, "Conversation stopped manually.")
+                player.playExitSound()
+                manualStop = false // Reset flag
+            }
             if (isRapidFailure && forceContinuous) {
                  Log.w(TAG, "Continuous conversation aborted due to rapid failure (Duration: ${sessionDuration}ms)")
             }
