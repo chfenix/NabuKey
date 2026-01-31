@@ -1,142 +1,109 @@
-# 本地 STT（语音转文字）
+# 本地语音识别 (Local STT) 集成方案
 
-> **状态**: 📋 规划中 | **优先级**: ⭐⭐⭐⭐⭐ 高 | **复杂度**: 高
+本文档详细记录了在 NabuKey 中集成离线语音识别 (Sherpa-ONNX + SenseVoice) 的技术方案、架构决策及部署指南。
 
-## 概述
+## 1. 方案概述
 
-使用 SenseVoice-Small + Sherpa-ONNX 实现本地语音转文字，通过 HA Conversation API 与 Home Assistant 交互，减少对云端 STT 的依赖。
+为了减少对云端或 Home Assistant 服务器算力的依赖，并为未来的完全离线交互做准备，我们集成了 **Sherpa-ONNX** 引擎，运行 **SenseVoice-Small-ONNX** 模型进行端侧中文语音识别。
 
-## 系统架构
+目前采用了 **双路并行 (Dual-Stack)** 架构：
+1.  **本地识别**：手机端实时转录音频，用于日志验证、实时字幕及本地意图匹配。
+2.  **远程执行**：同时将音频流发送给 Home Assistant (Assist Pipeline)，由服务器进行再次识别和意图执行。
 
-**当前流程** (音频流模式):
-```
-NabuKey ──(音频流)──▶ Home Assistant ──▶ 云端 STT ──▶ 意图处理 ──▶ TTS
-```
+## 2. 核心架构与决策
 
-**新流程** (本地 STT + Conversation API):
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  NabuKey (Android)                    Home Assistant                    │
-│  ┌─────────────────┐                  ┌────────────────┐                │
-│  │ 1. 唤醒词检测    │                  │                │                │
-│  │ 2. 录制音频      │                  │                │                │
-│  │ 3. 本地 STT     │──(文本)────────▶│ 4. 意图处理    │                │
-│  │    (SenseVoice) │  Conversation   │   (LLM/意图)   │                │
-│  │                 │◀──(文本响应)────│                │                │
-│  │ 5. 本地/远程 TTS │      API        │                │                │
-│  └─────────────────┘                  └────────────────┘                │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+### 2.1 为什么采用双路架构？(技术限制说明)
 
-## 技术选型
+在集成过程中，我们遇到了 ESPHome Native API 的协议限制：
+*   **限制**：ESPHome 的 `VoiceAssistantRequest` (Protobuf 消息) 仅支持启动语音会话，不支持客户端直接注入文本 (`text`) 负载。
+*   **现象**：如果我们仅发送本地识别的文本而不发送音频，Home Assistant 将无法收到有效的输入流，导致管道挂起或超时。
+*   **决策**：为了保证现有的 Home Assistant 语音助手功能（如控制家电）正常工作，我们保留了音频流发送逻辑。本地 STT 目前作为“增强层”运行，其识别结果主要用于验证和未来的本地功能扩展，而不直接驱动 HA 的意图引擎。
 
-### STT 引擎
+### 2.2 核心组件变化
 
-**选定方案**: SenseVoice-Small + Sherpa-ONNX
+#### A. 引擎封装 (`LocalSTT.kt`)
+*   **位置**: `app/src/main/java/com/nabukey/stt/LocalSTT.kt`
+*   **职责**:
+    *   封装 Sherpa-ONNX 的 `OfflineRecognizer`。
+    *   管理模型文件路径 (`/sdcard/Android/data/.../files/models/`).
+    *   提供 `initialize()` 和 `transcribe(floatArray)` 接口。
+*   **注入方式**: 由于 Hilt/KSP 对 K2FSA 库的解析可能存在问题，我们采用了**手动依赖注入**模式，而非 `@Inject`。
 
-| 组件 | 技术选型 | 说明 |
-|-----|---------|------|
-| **本地 STT** | SenseVoice-Small (Sherpa-ONNX) | 70ms 处理 10s 音频，中文优化，支持情感识别 |
-| **HA 通信** | Conversation REST API | 发送文本，接收响应 |
-| **TTS** | HA TTS URL 或本地 TTS | 根据设置选择 |
+#### B. 管道处理 (`VoicePipeline.kt`)
+*   **修改点**: `processMicAudio` 和 `handleEvent`。
+*   **逻辑**:
+    1.  当 VAD (Voice Activity Detection) 激活时，音频数据被同时放入 `micAudioBuffer` (用于发送给 HA) 和 `localSttAudioBuffer` (用于本地推理)。
+    2.  当收到 HA 发来的 `VOICE_ASSISTANT_STT_VAD_END` 事件时，触发本地 `performLocalTranscription`。
+    3.  将缓冲的音频块合并、转换为 FloatArray (归一化)，通过 `LocalSTT` 进行推理。
+    4.  输出识别日志 `Local STT Recognized (Local Only): ...`。
 
-**SenseVoice 优势**:
-- **速度**: 推理延迟极低，处理 10 秒音频仅需 70 毫秒
-- **精度**: 针对中文和粤语优化，优于 Whisper
-- **功能**: 支持语种识别、情感识别（可联动表情系统）
-- **适配**: 通过 Sherpa-ONNX 完美支持 Android
+#### C. 服务管理 (`VoiceSatelliteService.kt`)
+*   **职责**: 负责 `LocalSTT` 实例的生命周期。
+*   **初始化**: 在 `onCreate` 中，利用 `lifecycleScope.launch` 异步调用 `localSTT.initialize()`，防止阻塞主线程。
 
-### 工程实施约束 (Critical)
+## 3. 部署与模型管理
 
-为了避免常见的 Native 开发陷阱，必须严格遵守以下约束：
+### 3.1 依赖库 (JNI)
+为了支持 Sherpa-ONNX，以下原生库已被放入项目：
+*   `app/src/main/jniLibs/arm64-v8a/libsherpa-onnx-jni.so`
+*   `app/src/main/jniLibs/arm64-v8a/libonnxruntime.so`
+*   (以及 `armeabi-v7a`, `x86`, `x86_64` 对应的库文件)
 
-1.  **模型加载策略 (External Loading)**:
-    - **禁止**直接从 `Assets` 加载模型（导致 JNI 崩溃）。
-    - **推荐**将模型文件放置在 App 外部私有目录：`/sdcard/Android/data/com.nabukey/files/models/`。
-    - 程序启动时检查该路径，优先加载外部模型。
-    - **设置项**: `sttModelPath` 用于存储和配置此路径。
+### 3.2 模型文件部署 (SenseVoice)
+模型文件较大，**不存放在 Git 仓库中**。部署流程如下：
 
-2.  **依赖管理 (Maven Only)**:
-    - **禁止**手动导入 `.so` 或源码编译。
-    - 必须通过 Maven 引用官方预编译 AAR: `com.k2fsa.sherpa.onnx:sherpa-onnx-android`。
+1.  **下载模型**:
+    *   下载 `SenseVoice-Small-ONNX` 模型包。
+    *   需要文件: `model.int8.onnx` 和 `tokens.txt`。
 
-3.  **ABI 架构管理**:
-    - 在 `build.gradle` 中配置 `packagingOptions.jniLibs.pickFirsts` 处理 `libc++_shared.so` 冲突。
-    - 确保 `microfeatures` (TFLite) 和 `sherpa-onnx` 的 ABI 架构一致 (推荐 `arm64-v8a`)。
+2.  **本地放置**:
+    *   在项目根目录创建 `local_models/` 文件夹。
+    *   将上述两个文件放入该目录。
+    *   *注：此目录已在 `.gitignore` 中排除。*
 
-4.  **情感识别集成**:
-    - 利用 SenseVoice 返回的 emotion 标签，直接驱动 `FaceController` 切换表情。
+3.  **自动同步**:
+    *   执行 `./gradlew installDebug` 时，Gradle 脚本（如配置了 `pushSttModels` 任务）会将 `local_models/` 下的文件推送到设备的 `/sdcard/Android/data/com.nabukey/files/models/` 目录。
+    *   `LocalSTT` 初始化时会自动从该目录加载模型。
 
-**备选方案**:
-由于 SenseVoice 的压倒性优势，目前暂不考虑 Whisper 和 Vosk。
+## 4. 关键代码片段 (防踩坑)
 
-## HA Conversation API
+**VoicePipeline.kt - Buffer 处理与推理触发**
+```kotlin
+// 1. 必须保留音频发送给 HA，否则 HA 不会执行指令
+sendMessage(voiceAssistantAudio { data = audio })
 
-**API 调用示例**:
-```http
-POST http://<HA_HOST>:8123/api/conversation/process
-Authorization: Bearer <LONG_LIVED_TOKEN>
-Content-Type: application/json
-
-{
-  "text": "打开客厅灯",
-  "language": "zh-CN"
+// 2. 本地 Buffer 用于离线识别
+if (localSTT != null) {
+    localSttAudioBuffer.add(audio)
 }
-```
 
-**响应示例**:
-```json
-{
-  "response": {
-    "speech": {
-      "plain": {
-        "speech": "好的，已为您打开客厅灯",
-        "extra_data": null
-      }
+// 3. 在 VAD 结束时进行推理
+if (eventType == VOICE_ASSISTANT_STT_VAD_END) {
+    GlobalScope.launch { // 使用协程进行耗时推理
+        // ... FloatBuffer 转换逻辑 ...
+        val result = stt.transcribe(floatArray)
+        Log.e(TAG, "Local STT Recognized: ${result.text}")
     }
-  },
-  "conversation_id": "xxx"
 }
 ```
 
-## 实现任务
+**VoiceSatelliteService.kt - 手动初始化**
+```kotlin
+// 避免使用 @Inject，防止 KSP 编译错误
+private lateinit var localSTT: LocalSTT
 
-- [ ] 集成 `Sherpa-ONNX` Android SDK
-- [ ] 下载并集成 `SenseVoice-Small` 量化模型
-- [ ] 实现音频流到文本的转换
-- [ ] 创建 `HomeAssistantApi` 类，封装 Conversation API
-- [ ] 实现文本请求/响应流程
-- [ ] 利用情感识别数据驱动表情变化
-- [ ] 实现本地 TTS 或使用 HA TTS URL
-- [ ] 添加设置项：选择 STT 模式（本地/云端）、HA 配置
-
-## 文件结构
-
-```
-app/src/main/java/com/nabukey/
-├── stt/
-│   ├── LocalSTT.kt              # SenseVoice 封装
-│   └── STTResult.kt             # STT 结果数据类
-├── homeassistant/
-│   ├── HomeAssistantApi.kt      # HA REST API 客户端
-│   ├── ConversationRequest.kt   # 请求数据类
-│   └── ConversationResponse.kt  # 响应数据类
-└── tts/
-    └── LocalTTS.kt              # (可选) 本地 TTS
+override fun onCreate() {
+    super.onCreate()
+    localSTT = LocalSTT(applicationContext, satelliteSettingsStore)
+    // 必须在协程中初始化，因为加载模型是耗时操作
+    lifecycleScope.launch {
+        localSTT.initialize()
+    }
+}
 ```
 
-## 技术可行性
+## 5. 常见问题排查
 
-| 问题 | 可行性 | 解决方案 |
-|-----|--------|---------|
-| 唤醒词检测 | ✅ 已有 | TensorFlow Lite 模型 |
-| 本地 STT | ✅ 可行 | SenseVoice + Sherpa-ONNX |
-| 调用 HA | ✅ 可行 | Conversation REST API |
-| 获取响应 | ✅ 可行 | JSON 响应包含文本 |
-| TTS 播放 | ✅ 可行 | 本地 TTS 或 HA TTS URL |
-
-## 相关资源
-
-- [Sherpa-ONNX GitHub](https://github.com/k2-fsa/sherpa-onnx)
-- [SenseVoice ModelScope](https://modelscope.cn/models/iic/SenseVoiceSmall)
-- [HA Conversation API 文档](https://developers.home-assistant.io/docs/intent_conversation_api)
+*   **编译报错 (KSP/Hilt)**: 如果遇到 `LocalSTT could not be resolved`，请确保移除 `VoiceSatelliteService` 中该字段的 `@Inject` 注解，改用手动 `new`。
+*   **初始化失败**: 检查日志 `LocalSTT`，如果是模型未找到，请确认 `local_models` 目录文件是否存在，以及应用是否具有存储权限（通常无需额外权限，因使用 App 私有目录）。
+*   **识别为空**: 确保麦克风输入的音频格式为 16kHz, 16-bit PCM。SenseVoice 对采样率敏感。
