@@ -58,6 +58,9 @@ class VoiceSatelliteService() : LifecycleService() {
     @Inject
     lateinit var playerSettingsStore: PlayerSettingsStore
 
+    // Manually instantiated to avoid KSP resolution issues
+    private lateinit var localSTT: LocalSTT
+
     private val wifiWakeLock = WifiWakeLock()
     private var voiceSatelliteNsd = AtomicReference<NsdRegistration?>(null)
     private val _voiceSatellite = MutableStateFlow<VoiceSatellite?>(null)
@@ -90,6 +93,9 @@ class VoiceSatelliteService() : LifecycleService() {
 
     override fun onCreate() {
         super.onCreate()
+        // Manual initialization of LocalSTT
+        localSTT = LocalSTT(applicationContext, satelliteSettingsStore)
+        
         wifiWakeLock.create(applicationContext, TAG)
         createVoiceSatelliteServiceNotificationChannel(this)
         updateNotificationOnStateChanges()
@@ -185,7 +191,8 @@ class VoiceSatelliteService() : LifecycleService() {
             port = satelliteSettings.serverPort,
             audioInput = audioInput,
             player = player,
-            settingsStore = satelliteSettingsStore
+            settingsStore = satelliteSettingsStore,
+            localSTT = localSTT
         )
     }
 

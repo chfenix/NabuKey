@@ -2,6 +2,7 @@ package com.nabukey.esphome.voicesatellite
 
 import android.Manifest
 import android.util.Log
+import com.nabukey.stt.LocalSTT
 import androidx.annotation.RequiresPermission
 import com.nabukey.esphome.Connected
 import com.nabukey.esphome.EspHomeDevice
@@ -43,7 +44,8 @@ class VoiceSatellite(
     port: Int,
     val audioInput: VoiceSatelliteAudioInput,
     val player: VoiceSatellitePlayer,
-    val settingsStore: VoiceSatelliteSettingsStore
+    val settingsStore: VoiceSatelliteSettingsStore,
+    val localSTT: LocalSTT
 ) : EspHomeDevice(
     coroutineContext,
     name,
@@ -247,6 +249,7 @@ class VoiceSatellite(
 
     private fun createPipeline() = VoicePipeline(
         player = player.ttsPlayer,
+        localSTT = localSTT,
         sendMessage = { sendMessage(it) },
         listeningChanged = { audioInput.isStreaming = it },
         stateChanged = { _state.value = it },

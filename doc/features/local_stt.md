@@ -36,7 +36,7 @@ NabuKey ──(音频流)──▶ Home Assistant ──▶ 云端 STT ──▶
 
 | 组件 | 技术选型 | 说明 |
 |-----|---------|------|
-| **本地 STT** | SenseVoice-Small (Sherpa-ONNX) | 70ms 处理 10s 音频，中文优化 |
+| **本地 STT** | SenseVoice-Small (Sherpa-ONNX) | 70ms 处理 10s 音频，中文优化，支持情感识别 |
 | **HA 通信** | Conversation REST API | 发送文本，接收响应 |
 | **TTS** | HA TTS URL 或本地 TTS | 根据设置选择 |
 
@@ -46,11 +46,29 @@ NabuKey ──(音频流)──▶ Home Assistant ──▶ 云端 STT ──▶
 - **功能**: 支持语种识别、情感识别（可联动表情系统）
 - **适配**: 通过 Sherpa-ONNX 完美支持 Android
 
+### 工程实施约束 (Critical)
+
+为了避免常见的 Native 开发陷阱，必须严格遵守以下约束：
+
+1.  **模型加载策略 (External Loading)**:
+    - **禁止**直接从 `Assets` 加载模型（导致 JNI 崩溃）。
+    - **推荐**将模型文件放置在 App 外部私有目录：`/sdcard/Android/data/com.nabukey/files/models/`。
+    - 程序启动时检查该路径，优先加载外部模型。
+    - **设置项**: `sttModelPath` 用于存储和配置此路径。
+
+2.  **依赖管理 (Maven Only)**:
+    - **禁止**手动导入 `.so` 或源码编译。
+    - 必须通过 Maven 引用官方预编译 AAR: `com.k2fsa.sherpa.onnx:sherpa-onnx-android`。
+
+3.  **ABI 架构管理**:
+    - 在 `build.gradle` 中配置 `packagingOptions.jniLibs.pickFirsts` 处理 `libc++_shared.so` 冲突。
+    - 确保 `microfeatures` (TFLite) 和 `sherpa-onnx` 的 ABI 架构一致 (推荐 `arm64-v8a`)。
+
+4.  **情感识别集成**:
+    - 利用 SenseVoice 返回的 emotion 标签，直接驱动 `FaceController` 切换表情。
+
 **备选方案**:
-| 方案 | 模型 | 状态 |
-|-----|------|------|
-| Whisper | OpenAI Whisper (tiny/base) | 备选 |
-| Vosk | Vosk 离线模型 | 备选 |
+由于 SenseVoice 的压倒性优势，目前暂不考虑 Whisper 和 Vosk。
 
 ## HA Conversation API
 

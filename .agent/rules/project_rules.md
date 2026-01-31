@@ -1,3 +1,7 @@
+---
+trigger: always_on
+---
+
 # NabuKey 项目开发规则
 
 ## 项目概述

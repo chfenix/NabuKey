@@ -26,7 +26,8 @@ data class VoiceSatelliteSettings(
     val serverPort: Int = 6053,
     val macAddress: String = DEFAULT_MAC_ADDRESS,
     val autoStart: Boolean = true,
-    val forceContinuousConversation: Boolean = false
+    val forceContinuousConversation: Boolean = false,
+    val sttModelPath: String = ""
 )
 
 private val DEFAULT = VoiceSatelliteSettings()
@@ -63,6 +64,12 @@ interface VoiceSatelliteSettingsStore : SettingsStore<VoiceSatelliteSettings> {
     val forceContinuousConversation: SettingState<Boolean>
 
     /**
+     * Absolute path to the STT model assets (SenseVoice).
+     * If empty, defaults to internal assets (not recommended for large models).
+     */
+    val sttModelPath: SettingState<String>
+
+    /**
      * Ensures that a mac address has been generated and persisted.
      */
     suspend fun ensureMacAddressIsSet()
@@ -90,6 +97,10 @@ class VoiceSatelliteSettingsStoreImpl @Inject constructor(@ApplicationContext co
 
     override val forceContinuousConversation = SettingState(getFlow().map { it.forceContinuousConversation }) { value ->
         update { it.copy(forceContinuousConversation = value) }
+    }
+
+    override val sttModelPath = SettingState(getFlow().map { it.sttModelPath }) { value ->
+        update { it.copy(sttModelPath = value) }
     }
 
     override suspend fun ensureMacAddressIsSet() {

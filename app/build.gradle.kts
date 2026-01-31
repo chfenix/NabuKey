@@ -1,3 +1,6 @@
+import java.util.Date
+import java.text.SimpleDateFormat
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -11,6 +14,9 @@ plugins {
 android {
     namespace = "com.nabukey"
     compileSdk = 36
+    buildFeatures {
+        buildConfig = true
+    }
 
     defaultConfig {
         applicationId = "com.nabukey"
@@ -20,9 +26,10 @@ android {
             project.ext.get("versionCode").toString().toInt() else 1
         versionName = if (project.ext.has("versionName"))
             project.ext.get("versionName").toString() else "0.0.0"
-        base.archivesName = "NabuKey-$versionName"
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        val now = Date()
+        val formatter = SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+        buildConfigField("String", "BUILD_TIME", "\"${formatter.format(now)}\"")
     }
 
     buildTypes {
@@ -46,6 +53,13 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+            pickFirsts += "lib/arm64-v8a/libc++_shared.so"
+            pickFirsts += "lib/armeabi-v7a/libc++_shared.so"
+        }
     }
 }
 
@@ -86,3 +100,25 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
 }
+
+tasks.register<Exec>("pushSttModels") {
+    description = "Pushes local STT models to the device's external files directory."
+    group = "install"
+
+    val adb = android.adbExecutable.absolutePath
+    val localModelsDir = project.rootDir.resolve("local_models")
+    val deviceDestDir = "/sdcard/Android/data/com.nabukey/files/models/"
+
+    // Only execute if local_models directory exists
+    onlyIf { localModelsDir.exists() && localModelsDir.isDirectory }
+
+    commandLine(adb, "push", localModelsDir.absolutePath, deviceDestDir)
+
+    doFirst {
+        println("Pushing STT models from $localModelsDir to $deviceDestDir...")
+    }
+}
+
+// Optional: Make it run automatically after installDebug
+// Optional: Make it run automatically after installDebug
+tasks.findByName("installDebug")?.finalizedBy("pushSttModels")

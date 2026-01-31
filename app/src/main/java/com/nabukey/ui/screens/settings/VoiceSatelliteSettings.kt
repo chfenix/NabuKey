@@ -9,9 +9,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nabukey.BuildConfig
 import com.nabukey.R
 import com.nabukey.ui.screens.settings.components.IntSetting
 import com.nabukey.ui.screens.settings.components.SelectSetting
+import com.nabukey.ui.screens.settings.components.SettingItem
 import com.nabukey.ui.screens.settings.components.SwitchSetting
 import com.nabukey.ui.screens.settings.components.TextSetting
 import kotlinx.coroutines.launch
@@ -125,6 +127,12 @@ fun VoiceSatelliteSettings(
                         viewModel.saveEnableWakeSound(it)
                     }
                 }
+            )
+        }
+        item {
+            SettingItem(
+                name = stringResource(R.string.label_build_time),
+                value = BuildConfig.BUILD_TIME
             )
         }
     }

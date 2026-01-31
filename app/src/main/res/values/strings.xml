@@ -28,4 +28,5 @@
     <string name="satellite_state_processing">Processing</string>
     <string name="satellite_state_responding">Responding</string>
     <string name="satellite_state_server_error">Server Error: %1$s</string>
+    <string name="label_build_time">Build Time</string>
 </resources>
