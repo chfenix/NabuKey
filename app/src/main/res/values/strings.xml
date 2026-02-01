@@ -16,6 +16,10 @@
     <string name="description_voice_satellite_force_continuous">Always continue listening after a response, even if HA does not request it</string>
     <string name="label_custom_wake_words">Custom wake words</string>
     <string name="description_custom_wake_word_location">Specify the location of custom wake word models</string>
+    <string name="label_vad_threshold">VAD Threshold</string>
+    <string name="description_vad_threshold">Sensitivity (0.01 - 1.0). Higher is stricter.</string>
+    <string name="label_silence_timeout">Silence Timeout (s)</string>
+    <string name="label_app_version">Version: %1$s (%2$s)</string>
 
     <string name="validation_voice_satellite_name_empty">Name cannot be empty</string>
     <string name="validation_voice_satellite_port_invalid">Port must be between 1 and 65535</string>

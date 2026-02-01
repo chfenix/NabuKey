@@ -48,6 +48,8 @@ class VoiceSatellite(
     coroutineContext: CoroutineContext,
     name: String,
     port: Int,
+    val vadThreshold: Float,
+    val silenceTimeoutSeconds: Int,
     val audioInput: VoiceSatelliteAudioInput,
     val player: VoiceSatellitePlayer,
     val settingsStore: VoiceSatelliteSettingsStore
@@ -208,17 +210,19 @@ class VoiceSatellite(
                 if (pipeline?.state == Listening) {
                      val bytes = audioResult.audio.toByteArray()
                      val floats = bytesToFloats(bytes)
-                     val isSpeech = vadDetector.predict(floats) > 0.5f
+                     val probability = vadDetector.predict(floats)
+                     val isSpeech = probability > vadThreshold
                      
                      if (isSpeech) {
                          if (System.currentTimeMillis() - lastSpeechTime > 1000) {
-                             Log.d(TAG, "VAD: Speech detected, resetting timer. (Silence was ${System.currentTimeMillis() - lastSpeechTime}ms)")
+                             Log.d(TAG, "VAD: Speech detected (prob=$probability > $vadThreshold), resetting timer.")
                          }
                          lastSpeechTime = System.currentTimeMillis()
                      } else {
                          val silenceDuration = System.currentTimeMillis() - lastSpeechTime
-                         if (silenceDuration > SILENCE_TIMEOUT && !manualStop) {
-                             Log.i(TAG, "Silence timeout detected ($SILENCE_TIMEOUT ms). Stopping conversation.")
+                         val timeoutMs = silenceTimeoutSeconds * 1000L
+                         if (silenceDuration > timeoutMs && !manualStop) {
+                             Log.i(TAG, "Silence timeout detected ($timeoutMs ms). Stopping conversation.")
                              // Play exit sound for feedback? The user asked for "auto pause".
                              // Let's use stopConversation(isManual=true) so it plays the sound.
                              // This gives clear feedback "I stopped listening".
@@ -299,6 +303,10 @@ class VoiceSatellite(
         stateChanged = { _state.value = it },
         ended = {
             scope.launch { onTtsFinished(it) }
+        },
+        onSpeechDetected = {
+            Log.d(TAG, "Server VAD detected speech. Resetting local timer.")
+            lastSpeechTime = System.currentTimeMillis()
         }
     )
 
@@ -365,8 +373,8 @@ class VoiceSatellite(
             if (isRapidFailure && forceContinuous) {
                  Log.w(TAG, "Continuous conversation aborted due to rapid failure (Duration: ${sessionDuration}ms)")
             }
-            player.unDuck()
-            _state.value = Connected
+            // Ensure full cleanup (pipeline=null, isStreaming=false)
+            stopSatellite()
         }
     }
 

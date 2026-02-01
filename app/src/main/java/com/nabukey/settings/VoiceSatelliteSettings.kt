@@ -26,7 +26,9 @@ data class VoiceSatelliteSettings(
     val serverPort: Int = 6053,
     val macAddress: String = DEFAULT_MAC_ADDRESS,
     val autoStart: Boolean = true,
-    val forceContinuousConversation: Boolean = false
+    val forceContinuousConversation: Boolean = false,
+    val vadThreshold: Float = 0.5f,
+    val silenceTimeoutSeconds: Int = 5
 )
 
 private val DEFAULT = VoiceSatelliteSettings()
@@ -62,6 +64,10 @@ interface VoiceSatelliteSettingsStore : SettingsStore<VoiceSatelliteSettings> {
      */
     val forceContinuousConversation: SettingState<Boolean>
 
+    val vadThreshold: SettingState<Float>
+
+    val silenceTimeoutSeconds: SettingState<Int>
+
     /**
      * Ensures that a mac address has been generated and persisted.
      */
@@ -90,6 +96,14 @@ class VoiceSatelliteSettingsStoreImpl @Inject constructor(@ApplicationContext co
 
     override val forceContinuousConversation = SettingState(getFlow().map { it.forceContinuousConversation }) { value ->
         update { it.copy(forceContinuousConversation = value) }
+    }
+
+    override val vadThreshold = SettingState(getFlow().map { it.vadThreshold }) { value ->
+        update { it.copy(vadThreshold = value) }
+    }
+
+    override val silenceTimeoutSeconds = SettingState(getFlow().map { it.silenceTimeoutSeconds }) { value ->
+        update { it.copy(silenceTimeoutSeconds = value) }
     }
 
     override suspend fun ensureMacAddressIsSet() {

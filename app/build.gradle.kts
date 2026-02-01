@@ -23,6 +23,7 @@ android {
         base.archivesName = "NabuKey-$versionName"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("long", "BUILD_TIME", "${System.currentTimeMillis()}L")
     }
 
     buildTypes {
@@ -46,6 +47,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

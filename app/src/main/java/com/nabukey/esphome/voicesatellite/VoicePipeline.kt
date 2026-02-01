@@ -21,7 +21,8 @@ class VoicePipeline(
     private val sendMessage: suspend (MessageLite) -> Unit,
     private val listeningChanged: (listening: Boolean) -> Unit,
     private val stateChanged: (state: EspHomeState) -> Unit,
-    private val ended: (continueConversation: Boolean) -> Unit
+    private val ended: (continueConversation: Boolean) -> Unit,
+    private val onSpeechDetected: () -> Unit = {}
 ) {
     private var continueConversation = false
     private val micAudioBuffer = ArrayDeque<ByteString>()
@@ -59,6 +60,10 @@ class VoicePipeline(
                 // Init the player early so it gains system audio focus, this ducks any
                 // background audio whilst the microphone is capturing voice
                 player.init()
+            }
+
+            VoiceAssistantEvent.VOICE_ASSISTANT_STT_VAD_START -> {
+                onSpeechDetected()
             }
 
             VoiceAssistantEvent.VOICE_ASSISTANT_STT_VAD_END, VoiceAssistantEvent.VOICE_ASSISTANT_STT_END -> {
@@ -100,6 +105,11 @@ class VoicePipeline(
             }
 
             VoiceAssistantEvent.VOICE_ASSISTANT_RUN_END -> {
+                // Ignore RUN_END if the pipeline hasn't started (e.g. leftover from previous session)
+                if (!isRunning) {
+                    Log.w(TAG, "Ignoring RUN_END event for pipeline that hasn't started.")
+                    return
+                }
                 // If playback was never started, fire the ended callback,
                 // otherwise it will/was fired when playback finished
                 if (!ttsPlayed)
@@ -112,7 +122,11 @@ class VoicePipeline(
         }
     }
 
+    private var isEnded = false
+
     private fun fireEnded() {
+        if (isEnded) return
+        isEnded = true
         ended(continueConversation)
     }
 

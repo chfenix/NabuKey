@@ -15,6 +15,12 @@ import com.nabukey.ui.screens.settings.components.SelectSetting
 import com.nabukey.ui.screens.settings.components.SwitchSetting
 import com.nabukey.ui.screens.settings.components.TextSetting
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.material3.Text
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
 
 @Composable
 fun VoiceSatelliteSettings(
@@ -125,6 +131,47 @@ fun VoiceSatelliteSettings(
                         viewModel.saveEnableWakeSound(it)
                     }
                 }
+            )
+
+        }
+        item {
+            IntSetting(
+                name = stringResource(R.string.label_silence_timeout),
+                value = satelliteState?.silenceTimeoutSeconds,
+                enabled = enabled,
+                validation = { viewModel.validateSilenceTimeout(it) },
+                onConfirmRequest = {
+                    coroutineScope.launch {
+                        viewModel.saveSilenceTimeoutSeconds(it)
+                    }
+                }
+            )
+        }
+        item {
+            TextSetting(
+                name = stringResource(R.string.label_vad_threshold),
+                description = stringResource(R.string.description_vad_threshold),
+                value = satelliteState?.vadThreshold?.toString() ?: "0.5",
+                enabled = enabled,
+                validation = { viewModel.validateVadThreshold(it.toFloatOrNull()) },
+                onConfirmRequest = {
+                    coroutineScope.launch {
+                        viewModel.saveVadThreshold(it.toFloatOrNull())
+                    }
+                },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+            )
+        }
+        item {
+            val version = com.nabukey.BuildConfig.VERSION_NAME
+            val buildTime = try {
+                 java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(com.nabukey.BuildConfig.BUILD_TIME))
+            } catch (e: Exception) { "?" }
+            Text(
+                text = stringResource(R.string.label_app_version, version, buildTime),
+                modifier = Modifier.padding(16.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }

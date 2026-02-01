@@ -184,6 +184,8 @@ class VoiceSatelliteService() : LifecycleService() {
             coroutineContext = lifecycleScope.coroutineContext,
             name = satelliteSettings.name,
             port = satelliteSettings.serverPort,
+            vadThreshold = satelliteSettings.vadThreshold,
+            silenceTimeoutSeconds = satelliteSettings.silenceTimeoutSeconds,
             audioInput = audioInput,
             player = player,
             settingsStore = satelliteSettingsStore

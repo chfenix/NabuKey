@@ -109,6 +109,25 @@ class SettingsViewModel @Inject constructor(
             context.getString(R.string.validation_voice_satellite_port_invalid)
         else null
 
+    suspend fun saveVadThreshold(threshold: Float?) {
+        val valid = threshold != null && threshold >= 0.01f && threshold <= 1.0f
+        if (valid) {
+            satelliteSettingsStore.vadThreshold.set(threshold!!)
+        }
+    }
+
+    suspend fun saveSilenceTimeoutSeconds(timeout: Int?) {
+        if (timeout != null && timeout > 0) {
+            satelliteSettingsStore.silenceTimeoutSeconds.set(timeout)
+        }
+    }
+
+    fun validateVadThreshold(threshold: Float?): String? =
+        if (threshold == null || threshold < 0.01f || threshold > 1.0f) "Must be 0.01 - 1.0" else null
+
+    fun validateSilenceTimeout(timeout: Int?): String? =
+        if (timeout == null || timeout <= 0) "Must be > 0" else null
+
     suspend fun validateWakeWord(wakeWordId: String): String? {
         val wakeWordWithId = microphoneSettingsStore.availableWakeWords.first()
             .firstOrNull { it.id == wakeWordId }
