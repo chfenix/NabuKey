@@ -1,6 +1,7 @@
 package com.nabukey.esphome.voicesatellite
 
 import android.Manifest
+import android.content.Context
 import android.util.Log
 import androidx.annotation.RequiresPermission
 import com.nabukey.esphome.Connected
@@ -31,8 +32,8 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlin.coroutines.CoroutineContext
-import android.content.Context
 import com.nabukey.audio.VadDetector
+import com.nabukey.audio.SpeechDetector
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -41,15 +42,13 @@ data object Responding : EspHomeState
 data object Processing : EspHomeState
 data object Waking : EspHomeState
 
-
-
 class VoiceSatellite(
     val context: Context,
     coroutineContext: CoroutineContext,
     name: String,
     port: Int,
-    val vadThreshold: Float,
-    val silenceTimeoutSeconds: Int,
+    var vadThreshold: Float,
+    var silenceTimeoutSeconds: Int,
     val audioInput: VoiceSatelliteAudioInput,
     val player: VoiceSatellitePlayer,
     val settingsStore: VoiceSatelliteSettingsStore
@@ -76,9 +75,17 @@ class VoiceSatellite(
     private var timerFinished = false
     private var pipeline: VoicePipeline? = null
     private var manualStop = false // New flag to prevent auto-restart
+    private var isStopping = false // Prevent re-entrant stop loops
+    private var currentConversationId: String? = null
     private val vadDetector = VadDetector(context)
-    private var lastSpeechTime = System.currentTimeMillis()
-    private val SILENCE_TIMEOUT = 5000L // 5 seconds silence timeout
+    private val speechDetector = SpeechDetector(
+        threshold = vadThreshold,
+        minSpeechDurationMs = 60,
+        minSilenceDurationMs = 800
+    )
+
+    private var lastActivityTime = System.currentTimeMillis()
+    private val LISTENING_TIMEOUT_MS = 5000L
 
     init {
         addEntity(
@@ -87,6 +94,17 @@ class VoiceSatellite(
                 "Stop Conversation",
                 "stop_conversation"
             ) {
+                stopConversation(isManual = true)
+            }
+        )
+        addEntity(
+            com.nabukey.esphome.entities.ButtonEntity(
+                4,
+                "Reset Conversation",
+                "reset_conversation"
+            ) {
+                Log.i(TAG, "Resetting conversation context.")
+                currentConversationId = null
                 stopConversation(isManual = true)
             }
         )
@@ -196,42 +214,47 @@ class VoiceSatellite(
         player.duck()
         player.playAnnouncement(preannounceId, mediaId) {
             scope.launch {
-                onTtsFinished(startConversation)
+                onTtsFinished(startConversation, null, hasError = false, ttsPlayed = true)
             }
         }
     }
 
     private suspend fun handleAudioResult(audioResult: VoiceSatelliteAudioInput.AudioResult) {
+        if (isStopping) return // Ignore all audio inputs when stopping
+
         when (audioResult) {
             is VoiceSatelliteAudioInput.AudioResult.Audio -> {
                 pipeline?.processMicAudio(audioResult.audio)
                 
-                // VAD Check for Silence Timeout
                 if (pipeline?.state == Listening) {
                      val bytes = audioResult.audio.toByteArray()
                      val floats = bytesToFloats(bytes)
                      val probability = vadDetector.predict(floats)
-                     val isSpeech = probability > vadThreshold
                      
-                     if (isSpeech) {
-                         if (System.currentTimeMillis() - lastSpeechTime > 1000) {
-                             Log.d(TAG, "VAD: Speech detected (prob=$probability > $vadThreshold), resetting timer.")
+                     when (speechDetector.process(probability)) {
+                         SpeechDetector.Action.START -> {
+                             Log.d(TAG, "Local VAD: Speech Started")
+                             lastActivityTime = System.currentTimeMillis()
                          }
-                         lastSpeechTime = System.currentTimeMillis()
-                     } else {
-                         val silenceDuration = System.currentTimeMillis() - lastSpeechTime
-                         val timeoutMs = silenceTimeoutSeconds * 1000L
-                         if (silenceDuration > timeoutMs && !manualStop) {
-                             Log.i(TAG, "Silence timeout detected ($timeoutMs ms). Stopping conversation.")
-                             // Play exit sound for feedback? The user asked for "auto pause".
-                             // Let's use stopConversation(isManual=true) so it plays the sound.
-                             // This gives clear feedback "I stopped listening".
-                             // Also set manualStop implicitly to prevent re-entry, although stopConversation sets it too.
-                             stopConversation(isManual = true)
+                         SpeechDetector.Action.END -> {
+                             Log.d(TAG, "Local VAD: Speech Ended")
+                             lastActivityTime = System.currentTimeMillis()
+                         }
+                         SpeechDetector.Action.NONE -> {
+                             if (!speechDetector.hasDetectedSpeech) {
+                                  val timeout = if (silenceTimeoutSeconds > 0) silenceTimeoutSeconds * 1000L else LISTENING_TIMEOUT_MS
+                                  if (System.currentTimeMillis() - lastActivityTime > timeout) {
+                                      Log.i(TAG, "Listening Timeout ($timeout ms) - No speech detected.")
+                                      stopConversation(isManual = true)
+                                  }
+                             } else {
+                                  // Speech has been detected in this session, so we don't timeout rapidly.
+                                  // Wait for Speech Action.END or HA to take over.
+                             }
                          }
                      }
                 } else {
-                    lastSpeechTime = System.currentTimeMillis()
+                    lastActivityTime = System.currentTimeMillis()
                 }
             }
 
@@ -252,15 +275,19 @@ class VoiceSatellite(
     }
 
     private suspend fun onWakeDetected(wakeWordPhrase: String) {
-        // Allow using the wake word to stop the timer
-        // TODO: Should the satellite also wake?
+        if (System.currentTimeMillis() - lastStopTime < 2000) {
+            return
+        }
+        
+        if (_state.value != Connected) {
+             return
+        }
+
+        Log.d(TAG, "onWakeDetected: $wakeWordPhrase")
+
         if (timerFinished) {
             stopTimer()
         }
-        // Multiple wake detections from the same wake word can be triggered
-        // so care needs to be taken to ensure the satellite is only woken once.
-        // Currently this is achieved by creating a pipeline in the Listening state
-        // on the first wake detection and checking for that here.
         else if (pipeline?.state != Listening) {
             wakeSatellite(wakeWordPhrase)
         }
@@ -270,24 +297,39 @@ class VoiceSatellite(
         if (timerFinished) {
             stopTimer()
         } else {
-            stopSatellite()
+            Log.d(TAG, "Stop detected. Requesting stop.")
+            stopConversation(isManual = true)
         }
     }
 
     private var lastWakeTime: Long = 0
+    private var lastStopTime: Long = 0
+
     private suspend fun wakeSatellite(
         wakeWordPhrase: String = "",
         isContinueConversation: Boolean = false
     ) {
-        manualStop = false // Reset manual stop flag
-        lastSpeechTime = System.currentTimeMillis() // Reset VAD timer on wake
+        manualStop = false
+        isStopping = false // Reset stopping flag
+        
+        Log.d(TAG, "wakeSatellite: isContinueConversation=$isContinueConversation, oldId=$currentConversationId")
+        
+        if (!isContinueConversation) {
+             currentConversationId = null
+             Log.d(TAG, "Starting new conversation, cleared ID.")
+        } else {
+             Log.d(TAG, "Continuing conversation with ID: $currentConversationId")
+        }
+        
+        lastActivityTime = System.currentTimeMillis()
         lastWakeTime = System.currentTimeMillis()
+        speechDetector.reset()
+        
         Log.d(TAG, "Wake satellite")
         _state.value = Waking
         player.duck()
         pipeline = createPipeline()
         if (!isContinueConversation) {
-            // Start streaming audio only after the wake sound has finished
             player.playWakeSound {
                 scope.launch { pipeline?.start(wakeWordPhrase) }
             }
@@ -297,38 +339,57 @@ class VoiceSatellite(
     }
 
     private fun createPipeline() = VoicePipeline(
+        scope = scope,
         player = player.ttsPlayer,
         sendMessage = { sendMessage(it) },
-        listeningChanged = { audioInput.isStreaming = it },
+        listeningChanged = { 
+            audioInput.isStreaming = it 
+            if (it) {
+                 speechDetector.reset()
+                 lastActivityTime = System.currentTimeMillis()
+            }
+        },
         stateChanged = { _state.value = it },
-        ended = {
-            scope.launch { onTtsFinished(it) }
+        ended = { continueConversation, conversationId, hasError, ttsPlayed ->
+            scope.launch { onTtsFinished(continueConversation, conversationId, hasError, ttsPlayed) }
         },
         onSpeechDetected = {
             Log.d(TAG, "Server VAD detected speech. Resetting local timer.")
-            lastSpeechTime = System.currentTimeMillis()
-        }
+            lastActivityTime = System.currentTimeMillis()
+        },
+        initialConversationId = currentConversationId
     )
 
     private suspend fun stopSatellite() {
         Log.d(TAG, "Stop satellite")
+        isStopping = false // Reset here
+        lastStopTime = System.currentTimeMillis()
         pipeline = null
         audioInput.isStreaming = false
         player.ttsPlayer.stop()
         _state.value = Connected
         sendMessage(voiceAssistantAnnounceFinished { })
-        // lastWakeTime = 0 // Optional: reset wake time if stopped manually? No, keep it.
+        speechDetector.reset()
     }
 
     fun stopConversation(isManual: Boolean = true) {
+        val stopSource = if(isManual) "MANUAL/TIMEOUT" else "SERVER/UNKNOWN"
+        Log.d(TAG, "stopConversation request. Source: $stopSource, State: ${_state.value}, isStopping: $isStopping")
+        
+        if (isStopping) {
+            Log.d(TAG, "Already stopping, ignoring request")
+            return
+        }
+        isStopping = true // Lock immediately
+        
         scope.launch {
             if (isManual) {
                 manualStop = true
                 if (_state.value == Responding) {
                     Log.d(TAG, "Graceful stop requested: waiting for TTS to finish.")
+                    isStopping = false // Release lock if we are just waiting
                     return@launch
                 }
-                // Immediate stop: play sound then stop
                 player.playExitSound {
                    scope.launch { stopSatellite() }
                 }
@@ -346,34 +407,43 @@ class VoiceSatellite(
         }
     }
 
-    private suspend fun onTtsFinished(continueConversation: Boolean) {
-        Log.d(TAG, "TTS finished")
+    private suspend fun onTtsFinished(continueConversation: Boolean, conversationId: String?, hasError: Boolean, ttsPlayed: Boolean) {
+        Log.d(TAG, "TTS finished (continue=$continueConversation, conversationId=$conversationId, error=$hasError, played=$ttsPlayed)")
+        currentConversationId = conversationId // Persist the ID for context
         sendMessage(voiceAssistantAnnounceFinished { })
         val forceContinuous = settingsStore.get().forceContinuousConversation
         
-        // Prevent rapid loops: if session lasted less than 0.5 seconds, don't force restart
+        if (hasError) {
+             Log.w(TAG, "Stopping conversation due to error.")
+             stopSatellite()
+             return
+        }
+        
+        if (!ttsPlayed) {
+             Log.w(TAG, "Stopping conversation: No TTS playback occurred during this session.")
+             stopSatellite()
+             return
+        }
+        
         val sessionDuration = System.currentTimeMillis() - lastWakeTime
         val isRapidFailure = sessionDuration < 500
 
-        Log.d(TAG, "TtsFinished decision: manualStop=$manualStop, continue=$continueConversation, force=$forceContinuous, rapid=$isRapidFailure, duration=$sessionDuration")
+        // Only continue if HA request OR (force active AND we heard something valid)
+        val shouldLoop = !manualStop && (continueConversation || (forceContinuous && speechDetector.hasDetectedSpeech && !isRapidFailure))
 
-        if (!manualStop && (continueConversation || (forceContinuous && !isRapidFailure))) {
+        if (shouldLoop) {
             Log.d(TAG, "Continuing conversation (Server request: $continueConversation, Force: $forceContinuous, Duration: ${sessionDuration}ms)")
-            // Add delay to prevent capturing TTS echo/reverb as new speech
             delay(500)
-            // If forced, we might want to ensure we don't loop forever on silence.
-            // But for now, just restart the pipeline.
             wakeSatellite(isContinueConversation = true)
         } else {
             if (manualStop) {
                 Log.d(TAG, "Conversation stopped manually.")
                 player.playExitSound()
-                manualStop = false // Reset flag
+                manualStop = false
             }
             if (isRapidFailure && forceContinuous) {
-                 Log.w(TAG, "Continuous conversation aborted due to rapid failure (Duration: ${sessionDuration}ms)")
+                 Log.w(TAG, "Continuous conversation aborted due to rapid failure")
             }
-            // Ensure full cleanup (pipeline=null, isStreaming=false)
             stopSatellite()
         }
     }
@@ -392,6 +462,8 @@ class VoiceSatellite(
     override fun close() {
         super.close()
         player.close()
+        speechDetector.reset()
+        vadDetector.close()
     }
 
     companion object {

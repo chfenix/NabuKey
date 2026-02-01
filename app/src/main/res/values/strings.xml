@@ -14,6 +14,8 @@
     <string name="description_voice_satellite_play_wake_sound">Play a sound when the satellite is woken by a wake word"</string>
     <string name="label_voice_satellite_force_continuous">Force continuous conversation</string>
     <string name="description_voice_satellite_force_continuous">Always continue listening after a response, even if HA does not request it</string>
+    <string name="label_wake_word_threshold">Wake Word Threshold</string>
+    <string name="description_wake_word_threshold">Override sensitivity (0.0 - 1.0). Higher is less sensitive. Leave empty for default.</string>
     <string name="label_custom_wake_words">Custom wake words</string>
     <string name="description_custom_wake_word_location">Specify the location of custom wake word models</string>
     <string name="label_vad_threshold">VAD Threshold</string>

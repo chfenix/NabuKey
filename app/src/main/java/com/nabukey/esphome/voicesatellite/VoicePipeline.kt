@@ -11,24 +11,33 @@ import com.example.esphomeproto.api.voiceAssistantAudio
 import com.example.esphomeproto.api.voiceAssistantRequest
 import com.google.protobuf.ByteString
 import com.google.protobuf.MessageLite
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Tracks the state of a voice pipeline run.
  */
 @OptIn(UnstableApi::class)
 class VoicePipeline(
+    private val scope: CoroutineScope,
     private val player: AudioPlayer,
     private val sendMessage: suspend (MessageLite) -> Unit,
     private val listeningChanged: (listening: Boolean) -> Unit,
     private val stateChanged: (state: EspHomeState) -> Unit,
-    private val ended: (continueConversation: Boolean) -> Unit,
-    private val onSpeechDetected: () -> Unit = {}
+    private val ended: (continueConversation: Boolean, conversationId: String?, hasError: Boolean, ttsPlayed: Boolean) -> Unit,
+    private val onSpeechDetected: () -> Unit = {},
+    private val initialConversationId: String? = null
 ) {
     private var continueConversation = false
+    private var conversationId: String? = initialConversationId
+    private var hasError = false
     private val micAudioBuffer = ArrayDeque<ByteString>()
     private var isRunning = false
     private var ttsStreamUrl: String? = null
     private var ttsPlayed = false
+    private var ttsTimeoutJob: Job? = null
 
     private var _state: EspHomeState = Listening
     val state get() = _state
@@ -43,6 +52,7 @@ class VoicePipeline(
         sendMessage(voiceAssistantRequest {
             start = true
             this.wakeWordPhrase = wakeWordPhrase
+            initialConversationId?.let { this.conversationId = it }
         })
     }
 
@@ -50,6 +60,9 @@ class VoicePipeline(
      * Handles a new voice assistant event, updating state and TTS playback as required..
      */
     fun handleEvent(voiceEvent: VoiceAssistantEventResponse) {
+        val dataListString = voiceEvent.dataList.joinToString { "${it.name}=${it.value}" }
+        Log.d(TAG, "Event: ${voiceEvent.eventType}, Data: $dataListString")
+
         when (voiceEvent.eventType) {
             VoiceAssistantEvent.VOICE_ASSISTANT_RUN_START -> {
                 Log.d(TAG, "Pipeline run started")
@@ -62,6 +75,10 @@ class VoicePipeline(
                 player.init()
             }
 
+            VoiceAssistantEvent.VOICE_ASSISTANT_STT_START -> {
+                Log.d(TAG, "Server STT started")
+            }
+
             VoiceAssistantEvent.VOICE_ASSISTANT_STT_VAD_START -> {
                 onSpeechDetected()
             }
@@ -71,11 +88,16 @@ class VoicePipeline(
                 updateState(Processing)
             }
 
+            VoiceAssistantEvent.VOICE_ASSISTANT_INTENT_START -> { 
+                // Intent processing started
+            }
+
             VoiceAssistantEvent.VOICE_ASSISTANT_INTENT_PROGRESS -> {
                 // If the pipeline supports TTS streaming it is started here
                 if (voiceEvent.dataList.firstOrNull { data -> data.name == "tts_start_streaming" }?.value == "1") {
                     ttsStreamUrl?.let {
                         ttsPlayed = true
+                        startTtsTimeout()
                         player.play(it, ::fireEnded)
                     }
                 }
@@ -86,6 +108,10 @@ class VoicePipeline(
                 // therefore a new pipeline should be started when this one ends
                 if (voiceEvent.dataList.firstOrNull { data -> data.name == "continue_conversation" }?.value == "1") {
                     continueConversation = true
+                }
+                // Capture conversation ID for context tracking
+                voiceEvent.dataList.firstOrNull { it.name == "conversation_id" }?.value?.let {
+                    conversationId = it
                 }
             }
 
@@ -99,9 +125,15 @@ class VoicePipeline(
                 if (!ttsPlayed) {
                     voiceEvent.dataList.firstOrNull { data -> data.name == "url" }?.value?.let {
                         ttsPlayed = true
+                        startTtsTimeout()
                         player.play(it, ::fireEnded)
                     }
                 }
+            }
+
+            VoiceAssistantEvent.VOICE_ASSISTANT_ERROR -> {
+                Log.e(TAG, "Voice assistant error: ${voiceEvent.dataList.firstOrNull { it.name == "message" }?.value}")
+                hasError = true
             }
 
             VoiceAssistantEvent.VOICE_ASSISTANT_RUN_END -> {
@@ -110,10 +142,19 @@ class VoicePipeline(
                     Log.w(TAG, "Ignoring RUN_END event for pipeline that hasn't started.")
                     return
                 }
-                // If playback was never started, fire the ended callback,
-                // otherwise it will/was fired when playback finished
-                if (!ttsPlayed)
+                
+                // If playback was never started but we have a URL from RUN_START,
+                // play it now before ending.
+                if (!ttsPlayed && ttsStreamUrl != null) {
+                    Log.d(TAG, "Playing fallback TTS URL from RUN_START: $ttsStreamUrl")
+                    ttsPlayed = true
+                    startTtsTimeout()
+                    player.play(ttsStreamUrl!!, ::fireEnded)
+                } else if (!ttsPlayed) {
+                    // No playback performed and no fallback URL, end normally
                     fireEnded()
+                }
+                // If ttsPlayed is true, fireEnded will be called when playback completes
             }
 
             else -> {
@@ -124,10 +165,20 @@ class VoicePipeline(
 
     private var isEnded = false
 
+    private fun startTtsTimeout() {
+        ttsTimeoutJob?.cancel()
+        ttsTimeoutJob = scope.launch {
+            delay(30000) // 30 seconds safety timeout
+            Log.w(TAG, "TTS Playback timed out after 30s. Forcing completion.")
+            fireEnded()
+        }
+    }
+
     private fun fireEnded() {
+        ttsTimeoutJob?.cancel()
         if (isEnded) return
         isEnded = true
-        ended(continueConversation)
+        ended(continueConversation, conversationId, hasError, ttsPlayed)
     }
 
     /**

@@ -4,12 +4,14 @@ import android.media.AudioManager
 import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.util.UnstableApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Implementation of AudioPlayer backed by an ExoPlayer.
+ * Refactored to reuse the ExoPlayer instance and manage focus lifecycle separately.
  */
 @UnstableApi
 class AudioPlayerImpl(
@@ -18,8 +20,8 @@ class AudioPlayerImpl(
     private val playerBuilder: () -> Player
 ) : AudioPlayer {
     private var _player: Player? = null
-    private var isPlayerInit = false
     private var focusRegistration: AudioFocusRegistration? = null
+    private var activeListener: Player.Listener? = null
 
     private val _state = MutableStateFlow(AudioPlayerState.IDLE)
     override val state = _state.asStateFlow()
@@ -40,40 +42,64 @@ class AudioPlayerImpl(
         }
 
     override fun init() {
-        close()
-        _player = playerBuilder().apply {
-            volume = _volume
+        // Ensure player exists
+        if (_player == null) {
+            Log.d(TAG, "Creating new ExoPlayer instance")
+            _player = playerBuilder().apply {
+                volume = _volume
+                repeatMode = Player.REPEAT_MODE_OFF
+            }
         }
-
-        focusRegistration = AudioFocusRegistration.request(
-            audioManager = audioManager,
-            audioAttributes = _player!!.audioAttributes,
-            focusGain = focusGain
-        )
-        isPlayerInit = true
+        
+        // Ensure focus is requested
+        if (focusRegistration == null) {
+            Log.d(TAG, "Requesting audio focus")
+            focusRegistration = AudioFocusRegistration.request(
+                audioManager = audioManager,
+                audioAttributes = _player!!.audioAttributes,
+                focusGain = focusGain
+            )
+        }
     }
 
     override fun play(mediaUris: Iterable<String>, onCompletion: () -> Unit) {
-        if (!isPlayerInit)
-            init()
-        // Force recreation of player next time its needed
-        isPlayerInit = false
-        val player = _player
-        check(player != null) { "player not initialized" }
+        init() // Ensure player and focus
+        val player = _player!!
 
-        player.addListener(getPlayerListener(onCompletion))
+        // Remove previous listener to avoid duplicates or leaks
+        activeListener?.let { 
+            player.removeListener(it) 
+        }
+
+        val listener = getPlayerListener(onCompletion)
+        activeListener = listener
+        player.addListener(listener)
+
         runCatching {
+            player.stop() // Reset state
+            player.clearMediaItems()
+            var hasItems = false
             for (mediaUri in mediaUris) {
                 if (mediaUri.isNotEmpty()) {
                     player.addMediaItem(MediaItem.fromUri(mediaUri))
+                    hasItems = true
                 } else Log.w(TAG, "Ignoring empty media uri")
             }
-            player.playWhenReady = true
-            player.prepare()
+            
+            if (hasItems) {
+                player.playWhenReady = true
+                player.prepare()
+            } else {
+                 Log.w(TAG, "No valid media URIs to play")
+                 onCompletion() // Nothing to play
+                 abandonFocus()
+            }
         }.onFailure {
             Log.e(TAG, "Error playing media $mediaUris", it)
             onCompletion()
-            close()
+            // We don't release the player on error, just stop and abandon focus
+            player.stop()
+            abandonFocus()
         }
     }
 
@@ -88,17 +114,33 @@ class AudioPlayerImpl(
     }
 
     override fun stop() {
-        close()
+        _player?.stop()
+        abandonFocus()
+    }
+    
+    private fun abandonFocus() {
+        focusRegistration?.close()
+        focusRegistration = null
     }
 
     private fun getPlayerListener(onCompletion: () -> Unit) = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
             Log.d(TAG, "Playback state changed to $playbackState")
-            // If there's a playback error then the player state will return to idle
-            if (playbackState == Player.STATE_ENDED || playbackState == Player.STATE_IDLE) {
+            if (playbackState == Player.STATE_ENDED) {
                 onCompletion()
-                close()
+                abandonFocus() // Done speaking, let others play
+            } else if (playbackState == Player.STATE_IDLE) {
+                 // Idle usually means stopped or error or initial
+                 // We don't necessarily call onCompletion here unless we were expecting to play
+                 // But since we use this listener specifically for a play() call, if it goes IDLE it implies stop.
             }
+        }
+
+        override fun onPlayerError(error: PlaybackException) {
+            Log.e(TAG, "ExoPlayer error: ${error.message}", error)
+            onCompletion()
+            abandonFocus()
+            _player?.stop() // Reset to idle
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -112,11 +154,10 @@ class AudioPlayerImpl(
     }
 
     override fun close() {
-        isPlayerInit = false
+        Log.d(TAG, "Releasing ExoPlayer")
         _player?.release()
         _player = null
-        focusRegistration?.close()
-        focusRegistration = null
+        abandonFocus()
         _state.value = AudioPlayerState.IDLE
     }
 
