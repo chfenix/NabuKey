@@ -180,6 +180,7 @@ class VoiceSatelliteService() : LifecycleService() {
         )
 
         return VoiceSatellite(
+            context = this@VoiceSatelliteService,
             coroutineContext = lifecycleScope.coroutineContext,
             name = satelliteSettings.name,
             port = satelliteSettings.serverPort,

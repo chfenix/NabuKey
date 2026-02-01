@@ -31,13 +31,20 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlin.coroutines.CoroutineContext
+import android.content.Context
+import com.nabukey.audio.VadDetector
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 data object Listening : EspHomeState
 data object Responding : EspHomeState
 data object Processing : EspHomeState
 data object Waking : EspHomeState
 
+
+
 class VoiceSatellite(
+    val context: Context,
     coroutineContext: CoroutineContext,
     name: String,
     port: Int,
@@ -67,6 +74,9 @@ class VoiceSatellite(
     private var timerFinished = false
     private var pipeline: VoicePipeline? = null
     private var manualStop = false // New flag to prevent auto-restart
+    private val vadDetector = VadDetector(context)
+    private var lastSpeechTime = System.currentTimeMillis()
+    private val SILENCE_TIMEOUT = 5000L // 5 seconds silence timeout
 
     init {
         addEntity(
@@ -191,14 +201,49 @@ class VoiceSatellite(
 
     private suspend fun handleAudioResult(audioResult: VoiceSatelliteAudioInput.AudioResult) {
         when (audioResult) {
-            is VoiceSatelliteAudioInput.AudioResult.Audio ->
+            is VoiceSatelliteAudioInput.AudioResult.Audio -> {
                 pipeline?.processMicAudio(audioResult.audio)
+                
+                // VAD Check for Silence Timeout
+                if (pipeline?.state == Listening) {
+                     val bytes = audioResult.audio.toByteArray()
+                     val floats = bytesToFloats(bytes)
+                     val isSpeech = vadDetector.predict(floats) > 0.5f
+                     
+                     if (isSpeech) {
+                         if (System.currentTimeMillis() - lastSpeechTime > 1000) {
+                             Log.d(TAG, "VAD: Speech detected, resetting timer. (Silence was ${System.currentTimeMillis() - lastSpeechTime}ms)")
+                         }
+                         lastSpeechTime = System.currentTimeMillis()
+                     } else {
+                         val silenceDuration = System.currentTimeMillis() - lastSpeechTime
+                         if (silenceDuration > SILENCE_TIMEOUT && !manualStop) {
+                             Log.i(TAG, "Silence timeout detected ($SILENCE_TIMEOUT ms). Stopping conversation.")
+                             // Play exit sound for feedback? The user asked for "auto pause".
+                             // Let's use stopConversation(isManual=true) so it plays the sound.
+                             // This gives clear feedback "I stopped listening".
+                             // Also set manualStop implicitly to prevent re-entry, although stopConversation sets it too.
+                             stopConversation(isManual = true)
+                         }
+                     }
+                } else {
+                    lastSpeechTime = System.currentTimeMillis()
+                }
+            }
 
             is VoiceSatelliteAudioInput.AudioResult.WakeDetected ->
                 onWakeDetected(audioResult.wakeWord)
 
             is VoiceSatelliteAudioInput.AudioResult.StopDetected ->
                 onStopDetected()
+        }
+    }
+
+    private fun bytesToFloats(bytes: ByteArray): FloatArray {
+        val shorts = ShortArray(bytes.size / 2)
+        ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().get(shorts)
+        return FloatArray(shorts.size) { i ->
+            shorts[i] / 32768f
         }
     }
 
@@ -230,6 +275,8 @@ class VoiceSatellite(
         wakeWordPhrase: String = "",
         isContinueConversation: Boolean = false
     ) {
+        manualStop = false // Reset manual stop flag
+        lastSpeechTime = System.currentTimeMillis() // Reset VAD timer on wake
         lastWakeTime = System.currentTimeMillis()
         Log.d(TAG, "Wake satellite")
         _state.value = Waking
@@ -296,12 +343,16 @@ class VoiceSatellite(
         sendMessage(voiceAssistantAnnounceFinished { })
         val forceContinuous = settingsStore.get().forceContinuousConversation
         
-        // Prevent rapid loops: if session lasted less than 1.5 seconds, don't force restart
+        // Prevent rapid loops: if session lasted less than 0.5 seconds, don't force restart
         val sessionDuration = System.currentTimeMillis() - lastWakeTime
-        val isRapidFailure = sessionDuration < 1500
+        val isRapidFailure = sessionDuration < 500
+
+        Log.d(TAG, "TtsFinished decision: manualStop=$manualStop, continue=$continueConversation, force=$forceContinuous, rapid=$isRapidFailure, duration=$sessionDuration")
 
         if (!manualStop && (continueConversation || (forceContinuous && !isRapidFailure))) {
             Log.d(TAG, "Continuing conversation (Server request: $continueConversation, Force: $forceContinuous, Duration: ${sessionDuration}ms)")
+            // Add delay to prevent capturing TTS echo/reverb as new speech
+            delay(500)
             // If forced, we might want to ensure we don't loop forever on silence.
             // But for now, just restart the pipeline.
             wakeSatellite(isContinueConversation = true)

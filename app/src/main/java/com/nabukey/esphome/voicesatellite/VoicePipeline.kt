@@ -51,6 +51,7 @@ class VoicePipeline(
     fun handleEvent(voiceEvent: VoiceAssistantEventResponse) {
         when (voiceEvent.eventType) {
             VoiceAssistantEvent.VOICE_ASSISTANT_RUN_START -> {
+                Log.d(TAG, "Pipeline run started")
                 // From this point microphone audio can be sent
                 isRunning = true
                 // Prepare TTS playback
@@ -143,7 +144,7 @@ class VoicePipeline(
             return
         if (!isRunning) {
             micAudioBuffer.add(audio)
-            Log.d(TAG, "Buffering mic audio, current size: ${micAudioBuffer.size}")
+            if (micAudioBuffer.size % 20 == 0) Log.d(TAG, "Buffering mic audio, current size: ${micAudioBuffer.size}")
         } else {
             while (micAudioBuffer.isNotEmpty()) {
                 sendMessage(voiceAssistantAudio { data = micAudioBuffer.removeFirst() })
