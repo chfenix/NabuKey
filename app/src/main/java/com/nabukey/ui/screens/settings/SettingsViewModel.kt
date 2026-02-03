@@ -22,7 +22,8 @@ import javax.inject.Inject
 data class MicrophoneState(
     val wakeWord: WakeWordWithId,
     val wakeWords: List<WakeWordWithId>,
-    val customWakeWordLocation: Uri?
+    val customWakeWordLocation: Uri?,
+    val wakeWordThreshold: Float?
 )
 
 @HiltViewModel
@@ -43,7 +44,8 @@ class SettingsViewModel @Inject constructor(
                 wakeWord.id == settings.wakeWord
             } ?: wakeWords.first(),
             wakeWords = wakeWords,
-            customWakeWordLocation = settings.customWakeWordLocation?.toUri()
+            customWakeWordLocation = settings.customWakeWordLocation?.toUri(),
+            wakeWordThreshold = settings.wakeWordThreshold
         )
     }
 
@@ -136,6 +138,16 @@ class SettingsViewModel @Inject constructor(
         else
             null
     }
+
+    suspend fun saveWakeWordThreshold(threshold: Float?) {
+        val valid = threshold == null || (threshold >= 0.0f && threshold <= 1.0f)
+        if (valid) {
+            microphoneSettingsStore.wakeWordThreshold.set(threshold)
+        }
+    }
+
+    fun validateWakeWordThreshold(threshold: Float?): String? =
+        if (threshold != null && (threshold < 0.0f || threshold > 1.0f)) "Must be 0.0 - 1.0" else null
 
     companion object {
         private const val TAG = "SettingsViewModel"

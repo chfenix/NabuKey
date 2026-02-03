@@ -91,9 +91,16 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun OnCreate() {
         val permissionsLauncher = rememberLaunchWithMultiplePermissions(
-            onPermissionGranted = { serviceViewModel.autoStartServiceIfRequired() }
+            onPermissionGranted = {
+                android.util.Log.d("MainActivity", "Permissions granted, auto-starting service")
+                serviceViewModel.autoStartServiceIfRequired()
+            },
+            onPermissionDenied = { denied ->
+                android.util.Log.e("MainActivity", "Permissions denied: ${denied.joinToString()}")
+            }
         )
         DisposableEffect(Unit) {
+            android.util.Log.d("MainActivity", "Requesting permissions: ${VOICE_SATELLITE_PERMISSIONS.joinToString()}")
             permissionsLauncher.launch(VOICE_SATELLITE_PERMISSIONS)
             onDispose { }
         }

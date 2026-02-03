@@ -29,6 +29,7 @@ import com.nabukey.settings.MicrophoneSettingsStore
 import com.nabukey.settings.PlayerSettingsStore
 import com.nabukey.settings.VoiceSatelliteSettings
 import com.nabukey.settings.VoiceSatelliteSettingsStore
+import com.nabukey.sensors.PresenceDetector
 import com.nabukey.utils.translate
 import com.nabukey.wakelocks.WifiWakeLock
 import dagger.hilt.android.AndroidEntryPoint
@@ -61,6 +62,7 @@ class VoiceSatelliteService() : LifecycleService() {
     private val wifiWakeLock = WifiWakeLock()
     private var voiceSatelliteNsd = AtomicReference<NsdRegistration?>(null)
     private val _voiceSatellite = MutableStateFlow<VoiceSatellite?>(null)
+    private lateinit var presenceDetector: PresenceDetector
 
     val voiceSatelliteState = _voiceSatellite.flatMapLatest {
         it?.state ?: flowOf(Stopped)
@@ -90,6 +92,8 @@ class VoiceSatelliteService() : LifecycleService() {
 
     override fun onCreate() {
         super.onCreate()
+        presenceDetector = PresenceDetector(this, this)
+        presenceDetector.start()
         wifiWakeLock.create(applicationContext, TAG)
         createVoiceSatelliteServiceNotificationChannel(this)
         updateNotificationOnStateChanges()
@@ -147,6 +151,18 @@ class VoiceSatelliteService() : LifecycleService() {
                 }
             )
         }.launchIn(lifecycleScope)
+
+        // Watch settings changes and apply to satellite
+        kotlinx.coroutines.flow.combine(_voiceSatellite, microphoneSettingsStore.getFlow()) { satellite, settings ->
+            satellite?.audioInput?.setWakeWordThreshold(settings.wakeWordThreshold)
+        }.launchIn(lifecycleScope)
+
+        kotlinx.coroutines.flow.combine(_voiceSatellite, satelliteSettingsStore.getFlow()) { satellite, settings ->
+            if (satellite != null) {
+                satellite.vadThreshold = settings.vadThreshold
+                satellite.silenceTimeoutSeconds = settings.silenceTimeoutSeconds
+            }
+        }.launchIn(lifecycleScope)
     }
 
     private suspend fun createVoiceSatellite(satelliteSettings: VoiceSatelliteSettings): VoiceSatellite {
@@ -156,7 +172,9 @@ class VoiceSatelliteService() : LifecycleService() {
             activeStopWords = listOf(microphoneSettings.stopWord),
             availableWakeWords = microphoneSettingsStore.availableWakeWords.first(),
             availableStopWords = microphoneSettingsStore.availableStopWords.first(),
-            muted = microphoneSettings.muted
+
+            muted = microphoneSettings.muted,
+            wakeWordThreshold = microphoneSettings.wakeWordThreshold
         )
 
         val playerSettings = playerSettingsStore.get()
@@ -188,7 +206,8 @@ class VoiceSatelliteService() : LifecycleService() {
             silenceTimeoutSeconds = satelliteSettings.silenceTimeoutSeconds,
             audioInput = audioInput,
             player = player,
-            settingsStore = satelliteSettingsStore
+            settingsStore = satelliteSettingsStore,
+            presenceFlow = presenceDetector.isPresent
         )
     }
 
@@ -229,6 +248,7 @@ class VoiceSatelliteService() : LifecycleService() {
         )
 
     override fun onDestroy() {
+        presenceDetector.stop()
         _voiceSatellite.getAndUpdate { null }?.close()
         voiceSatelliteNsd.getAndSet(null)?.unregister(this)
         wifiWakeLock.release()

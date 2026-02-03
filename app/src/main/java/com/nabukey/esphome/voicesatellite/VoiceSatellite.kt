@@ -9,6 +9,8 @@ import com.nabukey.esphome.EspHomeDevice
 import com.nabukey.esphome.EspHomeState
 import com.nabukey.esphome.entities.MediaPlayerEntity
 import com.nabukey.esphome.entities.SwitchEntity
+import com.nabukey.esphome.entities.BinarySensorEntity
+import kotlinx.coroutines.flow.Flow
 import com.nabukey.settings.VoiceSatelliteSettingsStore
 import com.example.esphomeproto.api.DeviceInfoResponse
 import com.example.esphomeproto.api.VoiceAssistantAnnounceRequest
@@ -49,9 +51,11 @@ class VoiceSatellite(
     port: Int,
     var vadThreshold: Float,
     var silenceTimeoutSeconds: Int,
+
     val audioInput: VoiceSatelliteAudioInput,
     val player: VoiceSatellitePlayer,
-    val settingsStore: VoiceSatelliteSettingsStore
+    val settingsStore: VoiceSatelliteSettingsStore,
+    val presenceFlow: Flow<Boolean>
 ) : EspHomeDevice(
     coroutineContext,
     name,
@@ -69,7 +73,13 @@ class VoiceSatellite(
             "Play Wake Sound",
             "play_wake_sound",
             player.enableWakeSound
-        ) { player.enableWakeSound.set(it) }
+        ) { player.enableWakeSound.set(it) },
+        BinarySensorEntity(
+            5,
+            "Presence Detected",
+            "presence_detected",
+            presenceFlow
+        )
     )
 ) {
     private var timerFinished = false

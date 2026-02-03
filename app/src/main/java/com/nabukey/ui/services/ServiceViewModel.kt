@@ -80,6 +80,10 @@ class ServiceViewModel @Inject constructor(
         }
     }
 
+    fun notifyUserInteraction() {
+        screenStateManager.userInteraction()
+    }
+
     companion object {
         private const val TAG = "ServiceViewModel"
     }

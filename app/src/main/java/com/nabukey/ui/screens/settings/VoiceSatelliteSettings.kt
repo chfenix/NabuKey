@@ -106,6 +106,21 @@ fun VoiceSatelliteSettings(
             )
         }
         item {
+            TextSetting(
+                name = stringResource(R.string.label_wake_word_threshold),
+                description = stringResource(R.string.description_wake_word_threshold),
+                value = microphoneState?.wakeWordThreshold?.toString() ?: "",
+                enabled = enabled,
+                validation = { viewModel.validateWakeWordThreshold(it.toFloatOrNull()) },
+                onConfirmRequest = {
+                    coroutineScope.launch {
+                        viewModel.saveWakeWordThreshold(it.toFloatOrNull())
+                    }
+                },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+            )
+        }
+        item {
             DocumentTreeSetting(
                 name = stringResource(R.string.label_custom_wake_words),
                 description = stringResource(R.string.description_custom_wake_word_location),

@@ -20,9 +20,11 @@ class ScreenStateManager @Inject constructor() {
 
     private var activity: Activity? = null
     private var idleTimeoutJob: Job? = null
+    private var deepSleepJob: Job? = null
     
     // Configurable timeout
     private val IDLE_TIMEOUT_MS = 30000L // 30 seconds to go from ACTIVE to IDLE/SLEEPING
+    private val DEEP_SLEEP_TIMEOUT_MS = 60000L // 60 seconds to go from SLEEPING to SCREEN_OFF
 
     fun attach(activity: Activity) {
         this.activity = activity
@@ -34,10 +36,13 @@ class ScreenStateManager @Inject constructor() {
     fun detach() {
         this.activity = null
         idleTimeoutJob?.cancel()
+        deepSleepJob?.cancel()
     }
 
     fun wake() {
-        if (_screenState.value == ScreenState.SLEEPING || _screenState.value == ScreenState.IDLE) {
+        if (_screenState.value == ScreenState.SLEEPING || 
+            _screenState.value == ScreenState.IDLE || 
+            _screenState.value == ScreenState.SCREEN_OFF) {
             updateState(ScreenState.WAKING)
             // Simulating transition or just going straight to ACTIVE
             updateState(ScreenState.ACTIVE)
@@ -51,7 +56,7 @@ class ScreenStateManager @Inject constructor() {
     }
 
     fun userInteraction() {
-        if (_screenState.value == ScreenState.SLEEPING) {
+        if (_screenState.value == ScreenState.SLEEPING || _screenState.value == ScreenState.SCREEN_OFF) {
             wake()
         } else {
             // Extend active time
@@ -81,12 +86,29 @@ class ScreenStateManager @Inject constructor() {
             }
         }
     }
+    
+    private fun startDeepSleepTimer() {
+        deepSleepJob?.cancel()
+        deepSleepJob = CoroutineScope(Dispatchers.Main).launch {
+            delay(DEEP_SLEEP_TIMEOUT_MS)
+            if (_screenState.value == ScreenState.SLEEPING) {
+                updateState(ScreenState.SCREEN_OFF)
+            }
+        }
+    }
 
     private fun updateState(newState: ScreenState) {
         if (_screenState.value != newState) {
             _screenState.value = newState
             Log.d(TAG, "State changed to $newState")
             updateScreen(newState)
+            
+            // Handle Deep Sleep Timer
+            if (newState == ScreenState.SLEEPING) {
+                startDeepSleepTimer()
+            } else {
+                deepSleepJob?.cancel()
+            }
         }
     }
 
@@ -94,7 +116,7 @@ class ScreenStateManager @Inject constructor() {
         activity?.let { act ->
             val params = act.window.attributes
             when (state) {
-                ScreenState.SLEEPING -> {
+                ScreenState.SLEEPING, ScreenState.SCREEN_OFF -> {
                     params.screenBrightness = 0.01f // Minimum brightness but ON
                 }
                 ScreenState.ACTIVE, ScreenState.WAKING -> {

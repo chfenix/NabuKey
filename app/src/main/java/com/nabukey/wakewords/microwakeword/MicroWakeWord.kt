@@ -77,11 +77,11 @@ class MicroWakeWord(
 
     companion object {
         private const val TAG = "MicroWakeWord"
-        suspend fun fromWakeWord(wakeWord: WakeWordWithId): MicroWakeWord = MicroWakeWord(
+        suspend fun fromWakeWord(wakeWord: WakeWordWithId, thresholdOverride: Float? = null): MicroWakeWord = MicroWakeWord(
             id = wakeWord.id,
             wakeWord = wakeWord.wakeWord.wake_word,
             model = wakeWord.load(),
-            probabilityCutoff = wakeWord.wakeWord.micro.probability_cutoff,
+            probabilityCutoff = thresholdOverride ?: wakeWord.wakeWord.micro.probability_cutoff,
             slidingWindowSize = wakeWord.wakeWord.micro.sliding_window_size
         )
     }

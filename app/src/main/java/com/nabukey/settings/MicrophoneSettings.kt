@@ -23,7 +23,8 @@ data class MicrophoneSettings(
     val wakeWord: String = "okay_nabu",
     val stopWord: String = "stop",
     val customWakeWordLocation: String? = null,
-    val muted: Boolean = false
+    val muted: Boolean = false,
+    val wakeWordThreshold: Float? = null
 )
 
 private val DEFAULT = MicrophoneSettings()
@@ -59,6 +60,8 @@ interface MicrophoneSettingsStore : SettingsStore<MicrophoneSettings> {
      */
     val muted: SettingState<Boolean>
 
+    val wakeWordThreshold: SettingState<Float?>
+
     /**
      * Returns a list of available wake words from configured providers.
      */
@@ -93,6 +96,10 @@ class MicrophoneSettingsStoreImpl @Inject constructor(@param:ApplicationContext 
 
     override val muted = SettingState(getFlow().map { it.muted }) { value ->
         update { it.copy(muted = value) }
+    }
+
+    override val wakeWordThreshold = SettingState(getFlow().map { it.wakeWordThreshold }) { value ->
+        update { it.copy(wakeWordThreshold = value) }
     }
 
     override val availableWakeWords = customWakeWordLocation.mapLatest {

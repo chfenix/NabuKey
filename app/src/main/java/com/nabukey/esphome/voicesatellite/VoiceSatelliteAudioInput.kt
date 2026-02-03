@@ -21,7 +21,8 @@ class VoiceSatelliteAudioInput(
     activeStopWords: List<String>,
     val availableWakeWords: List<WakeWordWithId>,
     val availableStopWords: List<WakeWordWithId>,
-    muted: Boolean = false
+    muted: Boolean = false,
+    wakeWordThreshold: Float? = null
 ) {
     private val _availableWakeWords = availableWakeWords.associateBy { it.id }
     private val _availableStopWords = availableStopWords.associateBy { it.id }
@@ -44,6 +45,11 @@ class VoiceSatelliteAudioInput(
         _muted.value = value
     }
 
+    private val _wakeWordThreshold = MutableStateFlow(wakeWordThreshold)
+    fun setWakeWordThreshold(value: Float?) {
+        _wakeWordThreshold.value = value
+    }
+
     private val _isStreaming = AtomicBoolean(false)
     var isStreaming: Boolean
         get() = _isStreaming.get()
@@ -63,15 +69,17 @@ class VoiceSatelliteAudioInput(
             val microphoneInput = MicrophoneInput()
             var wakeWords = activeWakeWords.value
             var stopWords = activeStopWords.value
-            var detector = createDetector(wakeWords, stopWords)
+            var threshold = _wakeWordThreshold.value
+            var detector = createDetector(wakeWords, stopWords, threshold)
             try {
                 microphoneInput.start()
                 while (true) {
-                    if (wakeWords != activeWakeWords.value || stopWords != activeStopWords.value) {
+                    if (wakeWords != activeWakeWords.value || stopWords != activeStopWords.value || threshold != _wakeWordThreshold.value) {
                         wakeWords = activeWakeWords.value
                         stopWords = activeStopWords.value
+                        threshold = _wakeWordThreshold.value
                         detector.close()
-                        detector = createDetector(wakeWords, stopWords)
+                        detector = createDetector(wakeWords, stopWords, threshold)
                     }
 
                     val audio = microphoneInput.read()
@@ -104,20 +112,22 @@ class VoiceSatelliteAudioInput(
 
     private suspend fun createDetector(
         wakeWords: List<String>,
-        stopWords: List<String>
+        stopWords: List<String>,
+        threshold: Float?
     ) = MicroWakeWordDetector(
-        loadWakeWords(wakeWords, _availableWakeWords) +
-                loadWakeWords(stopWords, _availableStopWords)
+        loadWakeWords(wakeWords, _availableWakeWords, threshold) +
+                loadWakeWords(stopWords, _availableStopWords, threshold)
     )
 
     private suspend fun loadWakeWords(
         ids: List<String>,
-        wakeWords: Map<String, WakeWordWithId>
+        wakeWords: Map<String, WakeWordWithId>,
+        threshold: Float?
     ): List<MicroWakeWord> = buildList {
         for (id in ids) {
             wakeWords.get(id)?.let {
                 runCatching {
-                    add(MicroWakeWord.fromWakeWord(it))
+                    add(MicroWakeWord.fromWakeWord(it, threshold))
                 }.onFailure {
                     Log.e(TAG, "Error loading wake word: $id", it)
                 }
