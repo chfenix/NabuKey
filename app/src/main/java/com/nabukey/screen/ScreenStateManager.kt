@@ -14,17 +14,38 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class ScreenStateManager @Inject constructor() {
+class ScreenStateManager @Inject constructor(
+    // We cannot inject PresenceDetector directly because it is created in Service.
+    // Instead, we will expose a method to set the flow, or better, make PresenceDetector a Singleton managed by Hilt?
+    // Given the current architecture where Service creates it, we'll add a method to observe it.
+) {
     private val _screenState = MutableStateFlow(ScreenState.SLEEPING)
     val screenState = _screenState.asStateFlow()
 
     private var activity: Activity? = null
     private var idleTimeoutJob: Job? = null
     private var deepSleepJob: Job? = null
+    private var presenceJob: Job? = null
+    private var isUserPresent: Boolean = false
     
     // Configurable timeout
     private val IDLE_TIMEOUT_MS = 30000L // 30 seconds to go from ACTIVE to IDLE/SLEEPING
     private val DEEP_SLEEP_TIMEOUT_MS = 60000L // 60 seconds to go from SLEEPING to SCREEN_OFF
+    
+    // External dependency injection for presence flow
+    fun observePresence(presenceFlow: kotlinx.coroutines.flow.Flow<Boolean>) {
+        presenceJob?.cancel()
+        presenceJob = CoroutineScope(Dispatchers.Main).launch {
+            presenceFlow.collect { isPresent ->
+                isUserPresent = isPresent
+                if (isPresent) {
+                    onPresenceDetected()
+                } else {
+                    onPresenceLost()
+                }
+            }
+        }
+    }
 
     fun attach(activity: Activity) {
         this.activity = activity
@@ -37,6 +58,7 @@ class ScreenStateManager @Inject constructor() {
         this.activity = null
         idleTimeoutJob?.cancel()
         deepSleepJob?.cancel()
+        presenceJob?.cancel()
     }
 
     fun wake() {
@@ -72,17 +94,38 @@ class ScreenStateManager @Inject constructor() {
         }
     }
 
-    private fun resetIdleTimer() {
+    private fun resetIdleTimer(isPresenceHold: Boolean = false) {
         idleTimeoutJob?.cancel()
+        
+        if (isPresenceHold) {
+            // If presence is holding it, we don't start the countdown to sleep.
+            // We just ensure we are at least in IDLE behavior if not Active.
+            return
+        }
+        
         idleTimeoutJob = CoroutineScope(Dispatchers.Main).launch {
             delay(IDLE_TIMEOUT_MS)
+            
+            // Timeout valid only if user is NOT present (or we want to drop to IDLE anyway)
+            // If user is present, we drop from ACTIVE to IDLE, but HOLD at IDLE.
+            
             if (_screenState.value == ScreenState.ACTIVE) {
-                 // First go to IDLE or straight to SLEEPING?
-                 // Requirement says "Active -> Idle -> Sleeping" in diagram but "无交互一段时间后自动休眠"
-                 // Diagram: ACTIVE -> IDLE -> SLEEPING
                  updateState(ScreenState.IDLE)
-                 delay(5000L) // Stay in IDLE for 5 seconds then sleep
-                 sleep()
+            }
+            
+            if (isUserPresent) {
+                // User is here, do NOT sleep. Stay in IDLE.
+                Log.d(TAG, "User present, holding at IDLE")
+                return@launch
+            }
+            
+            // If we are IDLE (either just transitioned or was already IDLE) and user not here
+            if (_screenState.value == ScreenState.IDLE) {
+                 delay(5000L) 
+                 // Check again just in case presence changed during 5s delay without triggering full reset
+                 if (!isUserPresent) {
+                     sleep()
+                 }
             }
         }
     }
@@ -95,6 +138,27 @@ class ScreenStateManager @Inject constructor() {
                 updateState(ScreenState.SCREEN_OFF)
             }
         }
+    }
+    
+    private fun onPresenceDetected() {
+        Log.d(TAG, "Presence detected. Current state: ${_screenState.value}")
+        // If screen is OFF or SLEEPING, wake to IDLE (dimmed but visible)
+        if (_screenState.value == ScreenState.SCREEN_OFF || _screenState.value == ScreenState.SLEEPING) {
+             updateState(ScreenState.IDLE)
+        }
+        else if (_screenState.value == ScreenState.ACTIVE) {
+            // Do nothing, let timer run (it will drop to IDLE and hold)
+        }
+        else if (_screenState.value == ScreenState.IDLE) {
+             // If IDLE, cancel timer so we don't sleep
+             idleTimeoutJob?.cancel()
+        }
+    }
+    
+    private fun onPresenceLost() {
+         Log.d(TAG, "Presence lost. Resuming normal timeout.")
+         // Resume countdown to sleep
+         resetIdleTimer(isPresenceHold = false)
     }
 
     private fun updateState(newState: ScreenState) {
@@ -120,12 +184,16 @@ class ScreenStateManager @Inject constructor() {
                     params.screenBrightness = 0.01f // Minimum brightness but ON
                 }
                 ScreenState.ACTIVE, ScreenState.WAKING -> {
-                    params.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE // System preferred or Max
+                    // All active-like states keep full brightness
+                    params.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE 
                 }
                 ScreenState.IDLE -> {
-                     params.screenBrightness = 0.1f // Dimmed
+                    // User reported 0.1f is same as active, trying lower.
+                    // If system brightness is low, 0.1f might be indistinguishable.
+                    params.screenBrightness = 0.05f 
                 }
             }
+            Log.d(TAG, "Updating screen brightness for state $state to ${params.screenBrightness}")
             act.window.attributes = params
         }
     }

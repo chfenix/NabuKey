@@ -68,6 +68,9 @@ class VoiceSatelliteService() : LifecycleService() {
         it?.state ?: flowOf(Stopped)
     }
 
+    val presenceFlow: kotlinx.coroutines.flow.Flow<Boolean>
+        get() = if (this::presenceDetector.isInitialized) presenceDetector.isPresent else emptyFlow()
+
     fun startVoiceSatellite() {
         val serviceIntent = Intent(this, this::class.java)
         applicationContext.startForegroundService(serviceIntent)
@@ -129,6 +132,8 @@ class VoiceSatelliteService() : LifecycleService() {
         }
         return super.onStartCommand(intent, flags, startId)
     }
+
+    fun isPresenceInitialized() = this::presenceDetector.isInitialized
 
     private fun startSettingsWatcher() {
         _voiceSatellite.flatMapLatest { satellite ->

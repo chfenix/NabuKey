@@ -33,8 +33,11 @@ class ServiceViewModel @Inject constructor(
     private val _satellite = MutableStateFlow<VoiceSatelliteService?>(null)
     val satellite = _satellite.asStateFlow()
 
-    private val serviceConnection = bindService(context) {
-        _satellite.value = it
+    private val serviceConnection = bindService(context) { service ->
+        _satellite.value = service
+        if (service != null && service.isPresenceInitialized()) {
+             screenStateManager.observePresence(service.presenceFlow)
+        }
     }
 
     override fun onCleared() {
