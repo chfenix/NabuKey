@@ -55,7 +55,11 @@ sealed class ExpressionAnimator {
         private val idleExpressionPool = listOf(
             IdleExpression.NORMAL,
             IdleExpression.SLIGHT_SMILE,
-            IdleExpression.CURIOUS
+            IdleExpression.CURIOUS,
+            IdleExpression.WINK,
+            IdleExpression.SQUINT,
+            IdleExpression.WIDE_EYES,
+            IdleExpression.SHIFTY_EYES
         )
         
         suspend fun animate() {
@@ -63,8 +67,8 @@ sealed class ExpressionAnimator {
                 delay(Random.nextLong(2000, 6000))
                 
                 if (cycleExpressions) {
-                    // 15% 概率触发表情变化
-                    if (Random.nextFloat() < 0.15f) {
+                    // 提高随机表情概率到 30%
+                    if (Random.nextFloat() < 0.30f) {
                         showRandomExpression()
                     } else {
                         // 30% 概率四处看,70% 概率眨眼
@@ -122,6 +126,46 @@ sealed class ExpressionAnimator {
                     delay(1500) // 保持好奇1.5秒
                     eyeOffsetAnim.animateTo(0f, animationSpec = tween(500))
                 }
+                IdleExpression.WINK -> {
+                    // 眨单眼 (俏皮)
+                    val isLeft = Random.nextBoolean()
+                    val targetEye = if (isLeft) leftEyeAnim else rightEyeAnim
+                    
+                    targetEye.animateTo(0.1f, animationSpec = tween(150))
+                    targetEye.animateTo(1f, animationSpec = tween(150))
+                }
+                IdleExpression.SQUINT -> {
+                    // 眯眼 (仔细看)
+                    kotlinx.coroutines.coroutineScope {
+                        launch { leftEyeAnim.animateTo(0.4f, animationSpec = tween(300)) }
+                        launch { rightEyeAnim.animateTo(0.4f, animationSpec = tween(300)) }
+                    }
+                    delay(1000)
+                    kotlinx.coroutines.coroutineScope {
+                        launch { leftEyeAnim.animateTo(1f, animationSpec = tween(300)) }
+                        launch { rightEyeAnim.animateTo(1f, animationSpec = tween(300)) }
+                    }
+                }
+                IdleExpression.WIDE_EYES -> {
+                    // 瞪大眼 (惊喜/警觉)
+                   kotlinx.coroutines.coroutineScope {
+                        launch { leftEyeAnim.animateTo(1.3f, animationSpec = tween(200)) }
+                        launch { rightEyeAnim.animateTo(1.3f, animationSpec = tween(200)) }
+                    }
+                    delay(800)
+                    kotlinx.coroutines.coroutineScope {
+                        launch { leftEyeAnim.animateTo(1f, animationSpec = tween(200)) }
+                        launch { rightEyeAnim.animateTo(1f, animationSpec = tween(200)) }
+                    }
+                }
+               IdleExpression.SHIFTY_EYES -> {
+                    // 快速左右扫视 (机灵)
+                    repeat(2) {
+                        eyeOffsetAnim.animateTo(30f, animationSpec = tween(150))
+                        eyeOffsetAnim.animateTo(-30f, animationSpec = tween(150))
+                    }
+                    eyeOffsetAnim.animateTo(0f, animationSpec = tween(150))
+                }
             }
         }
         
@@ -161,7 +205,11 @@ sealed class ExpressionAnimator {
         private enum class IdleExpression {
             NORMAL,      // 正常
             SLIGHT_SMILE, // 微笑
-            CURIOUS      // 好奇
+            CURIOUS,      // 好奇
+            WINK,         // 眨单眼
+            SQUINT,       // 眯眼
+            WIDE_EYES,    // 瞪大眼
+            SHIFTY_EYES   // 左右扫视
         }
     }
 

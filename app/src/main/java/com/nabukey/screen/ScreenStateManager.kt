@@ -37,10 +37,14 @@ class ScreenStateManager @Inject constructor(
         presenceJob?.cancel()
         presenceJob = CoroutineScope(Dispatchers.Main).launch {
             presenceFlow.collect { isPresent ->
+                // Check edge (Absent -> Present)
+                val wasPresent = isUserPresent
                 isUserPresent = isPresent
-                if (isPresent) {
-                    onPresenceDetected()
-                } else {
+                
+                if (isPresent && !wasPresent) {
+                    // Only trigger logic on "Arrival" (0 -> 1)
+                    onUserArrived()
+                } else if (!isPresent && wasPresent) {
                     onPresenceLost()
                 }
             }
@@ -104,32 +108,44 @@ class ScreenStateManager @Inject constructor(
         }
         
         idleTimeoutJob = CoroutineScope(Dispatchers.Main).launch {
+            // 1. Wait for IDLE timeout (ACTIVE -> IDLE)
             delay(IDLE_TIMEOUT_MS)
-            
-            // Timeout valid only if user is NOT present (or we want to drop to IDLE anyway)
-            // If user is present, we drop from ACTIVE to IDLE, but HOLD at IDLE.
             
             if (_screenState.value == ScreenState.ACTIVE) {
                  updateState(ScreenState.IDLE)
             }
             
-            if (isUserPresent) {
-                // User is here, do NOT sleep. Stay in IDLE.
-                Log.d(TAG, "User present, holding at IDLE")
-                return@launch
-            }
+            // 2. Wait for Sleep timeout (IDLE -> SLEEPING)
+            // Even if user is present, we eventually sleep to save power.
+            delay(5000L) 
             
-            // If we are IDLE (either just transitioned or was already IDLE) and user not here
-            if (_screenState.value == ScreenState.IDLE) {
-                 delay(5000L) 
-                 // Check again just in case presence changed during 5s delay without triggering full reset
-                 if (!isUserPresent) {
-                     sleep()
-                 }
-            }
+            // Go to sleep
+            sleep()
         }
     }
     
+    private fun onUserArrived() {
+        Log.d(TAG, "User Arrived (Presence 0->1). Current state: ${_screenState.value}")
+        
+        // 1. If screen is OFF/SLEEPING -> Wake up to IDLE
+        if (_screenState.value == ScreenState.SCREEN_OFF || _screenState.value == ScreenState.SLEEPING) {
+             updateState(ScreenState.IDLE)
+             // Start normal idle timer cycle (30s Active(virtual) -> Idle -> Sleep)
+             // But wait, if we wake to IDLE, we shouldn't assume ACTIVE.
+             // We can just start the IDLE->SLEEP timer? Or full cycle?
+             // Usually "Wake up" implies we give them some time.
+             // Let's start the full idle timer logic.
+             resetIdleTimer()
+        }
+        
+        // 2. If ACTIVE or IDLE
+        // Requirement: "If from absent to present... restart timer."
+        else if (_screenState.value == ScreenState.ACTIVE || _screenState.value == ScreenState.IDLE) {
+            Log.d(TAG, "User re-entered during active session, resetting timer.")
+            resetIdleTimer()
+        }
+    }
+
     private fun startDeepSleepTimer() {
         deepSleepJob?.cancel()
         deepSleepJob = CoroutineScope(Dispatchers.Main).launch {
@@ -142,23 +158,36 @@ class ScreenStateManager @Inject constructor(
     
     private fun onPresenceDetected() {
         Log.d(TAG, "Presence detected. Current state: ${_screenState.value}")
-        // If screen is OFF or SLEEPING, wake to IDLE (dimmed but visible)
+        
+        // Scenario 1: Screen is OFF/SLEEPING -> User came back -> Wake to IDLE
         if (_screenState.value == ScreenState.SCREEN_OFF || _screenState.value == ScreenState.SLEEPING) {
              updateState(ScreenState.IDLE)
+             // Start timer to eventally sleep again if no interaction
+             resetIdleTimer()
         }
-        else if (_screenState.value == ScreenState.ACTIVE) {
-            // Do nothing, let timer run (it will drop to IDLE and hold)
-        }
-        else if (_screenState.value == ScreenState.IDLE) {
-             // If IDLE, cancel timer so we don't sleep
-             idleTimeoutJob?.cancel()
-        }
+        // Scenario 2: Active or Idle (e.g. conversation just ended) -> User is already here
+        // We do NOT want to force reset/interrupt the natural flow to sleep just because presence "updates".
+        // BUT, if the user *was absent* and now *is present* (re-entry), we might want to keep it awake?
+        // The implementation of presenceFlow just emits boolean. 
+        // Because we set `isUserPresent = isPresent` in collect, this function is called every time flow emits true.
+        // Assuming the flow emits safely (e.g. distinctUntilChanged), this fits "state change" or "periodic check".
+        
+        // Re-read requirement: "If user leaves and comes back (absent -> present), restart timer."
+        // If we are already running a timer (ACTIVE/IDLE), and user simply "stays", we let the timer run out (to sleep).
+        // So we actually don't need to do anything special here for ACTIVE/IDLE if we want them to sleep eventualy.
+        
+        // HOWEVER, if we are in IDLE counting down 5s to sleep, and user waves hand (re-detected?), 
+        // usually we want to keep it awake?
+        // User said: "even if person is there... wait 30s then sleep".
+        // So we explicitly DO NOT reset timer just for presence presence.
     }
     
     private fun onPresenceLost() {
-         Log.d(TAG, "Presence lost. Resuming normal timeout.")
-         // Resume countdown to sleep
-         resetIdleTimer(isPresenceHold = false)
+         Log.d(TAG, "Presence lost.")
+         // If user leaves, we don't need to do anything special. 
+         // The timer is likely already running (since we don't hold anymore).
+         // If we wanted to "speed up" sleep when user leaves, we could do it here,
+         // but requirement is to just let normal logic flow.
     }
 
     private fun updateState(newState: ScreenState) {
