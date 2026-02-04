@@ -35,10 +35,12 @@ class ServiceViewModel @Inject constructor(
 
     private val serviceConnection = bindService(context) { service ->
         _satellite.value = service
-        if (service != null && service.isPresenceInitialized()) {
+        if (service != null) {
+             // Always observe presence. If not ready, flow will be empty/false initially and update later.
              screenStateManager.observePresence(service.presenceFlow)
         }
     }
+
 
     override fun onCleared() {
         context.unbindService(serviceConnection)

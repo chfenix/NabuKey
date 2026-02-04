@@ -68,8 +68,11 @@ class VoiceSatelliteService() : LifecycleService() {
         it?.state ?: flowOf(Stopped)
     }
 
+    // Expose a safe flow that works even if presenceDetector is initialized late
     val presenceFlow: kotlinx.coroutines.flow.Flow<Boolean>
         get() = if (this::presenceDetector.isInitialized) presenceDetector.isPresent else emptyFlow()
+
+
 
     fun startVoiceSatellite() {
         val serviceIntent = Intent(this, this::class.java)
@@ -88,10 +91,11 @@ class VoiceSatelliteService() : LifecycleService() {
         }
     }
 
-    fun stopConversation() {
+    fun stopConversation(reason: VoiceSatellite.StopReason = VoiceSatellite.StopReason.Manual) {
         val satellite = _voiceSatellite.value
-        satellite?.stopConversation()
+        satellite?.stopConversation(reason)
     }
+
 
     override fun onCreate() {
         super.onCreate()
@@ -174,8 +178,9 @@ class VoiceSatelliteService() : LifecycleService() {
         val microphoneSettings = microphoneSettingsStore.get()
         val audioInput = VoiceSatelliteAudioInput(
             activeWakeWords = listOf(microphoneSettings.wakeWord),
-            activeStopWords = listOf(microphoneSettings.stopWord),
+            activeStopWords = emptyList(), // Disable local stop words as requested
             availableWakeWords = microphoneSettingsStore.availableWakeWords.first(),
+
             availableStopWords = microphoneSettingsStore.availableStopWords.first(),
 
             muted = microphoneSettings.muted,

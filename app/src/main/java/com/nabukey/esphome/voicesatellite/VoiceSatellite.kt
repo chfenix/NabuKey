@@ -84,8 +84,8 @@ class VoiceSatellite(
 ) {
     private var timerFinished = false
     private var pipeline: VoicePipeline? = null
-    private var manualStop = false // New flag to prevent auto-restart
     private var isStopping = false // Prevent re-entrant stop loops
+    private var explicitStop = false // Flag to indicate manual/local stop to prevent auto-restart
     private var currentConversationId: String? = null
     private val vadDetector = VadDetector(context)
     private val speechDetector = SpeechDetector(
@@ -97,6 +97,15 @@ class VoiceSatellite(
     private var lastActivityTime = System.currentTimeMillis()
     private val LISTENING_TIMEOUT_MS = 5000L
 
+    enum class StopReason {
+        Manual,
+        Timeout,
+        Keyword, // Stop command detected
+        Server,
+        Error,
+        Unknown
+    }
+
     init {
         addEntity(
             com.nabukey.esphome.entities.ButtonEntity(
@@ -104,7 +113,7 @@ class VoiceSatellite(
                 "Stop Conversation",
                 "stop_conversation"
             ) {
-                stopConversation(isManual = true)
+                stopConversation(StopReason.Manual)
             }
         )
         addEntity(
@@ -115,7 +124,7 @@ class VoiceSatellite(
             ) {
                 Log.i(TAG, "Resetting conversation context.")
                 currentConversationId = null
-                stopConversation(isManual = true)
+                stopConversation(StopReason.Manual)
             }
         )
     }
@@ -220,11 +229,22 @@ class VoiceSatellite(
         mediaId: String,
         preannounceId: String
     ) {
+        // Mark as Responding so we don't treat it as a regular conversation wake
         _state.value = Responding
         player.duck()
+        Log.d(TAG, "Starting announcement. StartConv=$startConversation, Media=$mediaId")
         player.playAnnouncement(preannounceId, mediaId) {
             scope.launch {
-                onTtsFinished(startConversation, null, hasError = false, ttsPlayed = true)
+                // For announcements, we treat it as an isolated event.
+                // We do NOT want to trigger continuous conversation logic unless explicitly requested
+                // via startConversation flag (which is rare for simple announcements).
+                onTtsFinished(
+                    continueConversation = startConversation, // Respect the flag from HA
+                    conversationId = null,
+                    hasError = false,
+                    ttsPlayed = true,
+                    isConversation = false // Verify: Is this existing logic? No, adding param
+                )
             }
         }
     }
@@ -235,12 +255,12 @@ class VoiceSatellite(
         when (audioResult) {
             is VoiceSatelliteAudioInput.AudioResult.Audio -> {
                 pipeline?.processMicAudio(audioResult.audio)
-                
+
                 if (pipeline?.state == Listening) {
                      val bytes = audioResult.audio.toByteArray()
                      val floats = bytesToFloats(bytes)
                      val probability = vadDetector.predict(floats)
-                     
+
                      when (speechDetector.process(probability)) {
                          SpeechDetector.Action.START -> {
                              Log.d(TAG, "Local VAD: Speech Started")
@@ -255,7 +275,7 @@ class VoiceSatellite(
                                   val timeout = if (silenceTimeoutSeconds > 0) silenceTimeoutSeconds * 1000L else LISTENING_TIMEOUT_MS
                                   if (System.currentTimeMillis() - lastActivityTime > timeout) {
                                       Log.i(TAG, "Listening Timeout ($timeout ms) - No speech detected.")
-                                      stopConversation(isManual = true)
+                                      stopConversation(StopReason.Timeout)
                                   }
                              } else {
                                   // Speech has been detected in this session, so we don't timeout rapidly.
@@ -288,7 +308,7 @@ class VoiceSatellite(
         if (System.currentTimeMillis() - lastStopTime < 2000) {
             return
         }
-        
+
         if (_state.value != Connected) {
              return
         }
@@ -307,10 +327,17 @@ class VoiceSatellite(
         if (timerFinished) {
             stopTimer()
         } else {
-            Log.d(TAG, "Stop detected. Requesting stop.")
-            stopConversation(isManual = true)
+            // Only allow stop words to interrupt an active session (Listening/Responding/etc)
+            // If we are Connected (Idle), we ignore "Stop" commands to prevent phantom triggers from ambient noise.
+            if (_state.value != Connected) {
+                Log.d(TAG, "Stop detected. Requesting stop.")
+                stopConversation(StopReason.Keyword)
+            } else {
+                Log.d(TAG, "Ignored Stop keyword while in Connected state.")
+            }
         }
     }
+
 
     private var lastWakeTime: Long = 0
     private var lastStopTime: Long = 0
@@ -319,22 +346,22 @@ class VoiceSatellite(
         wakeWordPhrase: String = "",
         isContinueConversation: Boolean = false
     ) {
-        manualStop = false
+        explicitStop = false // Reset explicit stop flag
         isStopping = false // Reset stopping flag
-        
+
         Log.d(TAG, "wakeSatellite: isContinueConversation=$isContinueConversation, oldId=$currentConversationId")
-        
+
         if (!isContinueConversation) {
              currentConversationId = null
              Log.d(TAG, "Starting new conversation, cleared ID.")
         } else {
              Log.d(TAG, "Continuing conversation with ID: $currentConversationId")
         }
-        
+
         lastActivityTime = System.currentTimeMillis()
         lastWakeTime = System.currentTimeMillis()
         speechDetector.reset()
-        
+
         Log.d(TAG, "Wake satellite")
         _state.value = Waking
         player.duck()
@@ -352,8 +379,8 @@ class VoiceSatellite(
         scope = scope,
         player = player.ttsPlayer,
         sendMessage = { sendMessage(it) },
-        listeningChanged = { 
-            audioInput.isStreaming = it 
+        listeningChanged = {
+            audioInput.isStreaming = it
             if (it) {
                  speechDetector.reset()
                  lastActivityTime = System.currentTimeMillis()
@@ -361,7 +388,15 @@ class VoiceSatellite(
         },
         stateChanged = { _state.value = it },
         ended = { continueConversation, conversationId, hasError, ttsPlayed ->
-            scope.launch { onTtsFinished(continueConversation, conversationId, hasError, ttsPlayed) }
+            scope.launch {
+                onTtsFinished(
+                    continueConversation,
+                    conversationId,
+                    hasError,
+                    ttsPlayed,
+                    isConversation = true
+                )
+            }
         },
         onSpeechDetected = {
             Log.d(TAG, "Server VAD detected speech. Resetting local timer.")
@@ -382,30 +417,45 @@ class VoiceSatellite(
         speechDetector.reset()
     }
 
-    fun stopConversation(isManual: Boolean = true) {
-        val stopSource = if(isManual) "MANUAL/TIMEOUT" else "SERVER/UNKNOWN"
-        Log.d(TAG, "stopConversation request. Source: $stopSource, State: ${_state.value}, isStopping: $isStopping")
-        
+    fun stopConversation(reason: StopReason) {
+        Log.d(TAG, "stopConversation request. Reason: $reason, State: ${_state.value}, isStopping: $isStopping")
+
         if (isStopping) {
             Log.d(TAG, "Already stopping, ignoring request")
             return
         }
+
+        // CRITICAL GUARD: If we are already Idle/Connected, and this is a TIMEOUT, ignore it.
+        // This prevents phantom timeouts from the VAD loop if it's running when it shouldn't be.
+        if (_state.value == Connected && reason == StopReason.Timeout) {
+            Log.w(TAG, "Ignoring Timeout while in Connected state.")
+            return
+        }
+
         isStopping = true // Lock immediately
-        
+        explicitStop = true // Set flag to prevent restart loops
+
         scope.launch {
-            if (isManual) {
-                manualStop = true
+            // Determine if we should play the exit sound
+            // We usually play it for Manual stops, Keyword stops, or Timeouts (to indicate we gave up listening)
+            val shouldPlayExitSound = when (reason) {
+                StopReason.Manual, StopReason.Keyword, StopReason.Timeout -> true
+                else -> false
+            }
+
+            if (shouldPlayExitSound) {
                 if (_state.value == Responding) {
-                    Log.d(TAG, "Graceful stop requested: waiting for TTS to finish.")
+                    Log.d(TAG, "Graceful stop requested during Response: waiting for TTS to finish.")
                     isStopping = false // Release lock if we are just waiting
+                    // Do NOT reset explicitStop here, we still want to stop after TTS
                     return@launch
                 }
                 player.playExitSound {
                    scope.launch { stopSatellite() }
                 }
-                return@launch
+            } else {
+                stopSatellite()
             }
-            stopSatellite()
         }
     }
 
@@ -417,43 +467,64 @@ class VoiceSatellite(
         }
     }
 
-    private suspend fun onTtsFinished(continueConversation: Boolean, conversationId: String?, hasError: Boolean, ttsPlayed: Boolean) {
-        Log.d(TAG, "TTS finished (continue=$continueConversation, conversationId=$conversationId, error=$hasError, played=$ttsPlayed)")
+    private suspend fun onTtsFinished(
+        continueConversation: Boolean,
+        conversationId: String?,
+        hasError: Boolean,
+        ttsPlayed: Boolean,
+        isConversation: Boolean
+    ) {
+        Log.d(TAG, "TTS finished (continue=$continueConversation, conversationId=$conversationId, error=$hasError, played=$ttsPlayed, isConv=$isConversation)")
         currentConversationId = conversationId // Persist the ID for context
         sendMessage(voiceAssistantAnnounceFinished { })
-        val forceContinuous = settingsStore.get().forceContinuousConversation
         
+        // If explicitly stopped (e.g. manual button or timeout), do NOT continue
+        if (explicitStop) {
+             Log.d(TAG, "Stopping conversation: Explicit stop was requested.")
+             stopSatellite()
+             return
+        }
+
+        // If it's just an announcement (not a conversation exchange), we usually just stop,
+        // unless HA explicitly told us to start a conversation in the announce request.
+        if (!isConversation && !continueConversation) {
+            Log.d(TAG, "Announcement finished, returning to idle.")
+            stopSatellite()
+            return
+        }
+
+        val forceContinuous = settingsStore.get().forceContinuousConversation
+
         if (hasError) {
              Log.w(TAG, "Stopping conversation due to error.")
              stopSatellite()
              return
         }
-        
-        if (!ttsPlayed) {
+
+        if (isConversation && !ttsPlayed) {
              Log.w(TAG, "Stopping conversation: No TTS playback occurred during this session.")
              stopSatellite()
              return
         }
-        
+
         val sessionDuration = System.currentTimeMillis() - lastWakeTime
         val isRapidFailure = sessionDuration < 500
 
-        // Only continue if HA request OR (force active AND we heard something valid)
-        val shouldLoop = !manualStop && (continueConversation || (forceContinuous && speechDetector.hasDetectedSpeech && !isRapidFailure))
+        // Only continue if HA request OR (force active AND not a rapid failure)
+        // We relax the speechDetector requirement so that if 'forceContinuous' is ON,
+        // we ALWAYS listen again, letting the Silence Timeout handle the stop if the user says nothing.
+        val shouldLoop = (continueConversation || (isConversation && forceContinuous && !isRapidFailure))
+
 
         if (shouldLoop) {
             Log.d(TAG, "Continuing conversation (Server request: $continueConversation, Force: $forceContinuous, Duration: ${sessionDuration}ms)")
             delay(500)
             wakeSatellite(isContinueConversation = true)
         } else {
-            if (manualStop) {
-                Log.d(TAG, "Conversation stopped manually.")
-                player.playExitSound()
-                manualStop = false
-            }
             if (isRapidFailure && forceContinuous) {
                  Log.w(TAG, "Continuous conversation aborted due to rapid failure")
             }
+            // Normal end of conversation
             stopSatellite()
         }
     }

@@ -168,11 +168,12 @@ class VoicePipeline(
     private fun startTtsTimeout() {
         ttsTimeoutJob?.cancel()
         ttsTimeoutJob = scope.launch {
-            delay(30000) // 30 seconds safety timeout
-            Log.w(TAG, "TTS Playback timed out after 30s. Forcing completion.")
+            delay(300000) // 300 seconds (5 minutes) safety timeout
+            Log.w(TAG, "TTS Playback timed out after 300s. Forcing completion.")
             fireEnded()
         }
     }
+
 
     private fun fireEnded() {
         ttsTimeoutJob?.cancel()
