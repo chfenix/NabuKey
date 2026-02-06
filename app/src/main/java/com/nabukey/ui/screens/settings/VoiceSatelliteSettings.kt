@@ -178,6 +178,49 @@ fun VoiceSatelliteSettings(
             )
         }
         item {
+            TextSetting(
+                name = stringResource(R.string.label_presence_min_face_ratio),
+                description = stringResource(R.string.description_presence_min_face_ratio),
+                value = satelliteState?.presenceMinFaceRatio?.toString() ?: "0.15",
+                enabled = enabled,
+                validation = { viewModel.validatePresenceMinFaceRatio(it.toFloatOrNull()) },
+                onConfirmRequest = {
+                    coroutineScope.launch {
+                        viewModel.savePresenceMinFaceRatio(it.toFloatOrNull())
+                    }
+                },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+            )
+        }
+        item {
+            TextSetting(
+                name = stringResource(R.string.label_presence_debounce_time),
+                description = stringResource(R.string.description_presence_debounce_time),
+                value = satelliteState?.presenceDebounceTime?.toString() ?: "3000",
+                enabled = enabled,
+                validation = { viewModel.validatePresenceDebounceTime(it.toLongOrNull()) },
+                onConfirmRequest = {
+                    coroutineScope.launch {
+                        viewModel.savePresenceDebounceTime(it.toLongOrNull())
+                    }
+                },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+            )
+        }
+        item {
+            SwitchSetting(
+                name = stringResource(R.string.label_presence_debug_logging),
+                description = stringResource(R.string.description_presence_debug_logging),
+                value = satelliteState?.presenceDebugLogging ?: true,
+                enabled = enabled,
+                onCheckedChange = {
+                    coroutineScope.launch {
+                        viewModel.savePresenceDebugLogging(it)
+                    }
+                }
+            )
+        }
+        item {
             val version = com.nabukey.BuildConfig.VERSION_NAME
             val buildTime = try {
                  java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(com.nabukey.BuildConfig.BUILD_TIME))

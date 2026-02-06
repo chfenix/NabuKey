@@ -171,6 +171,13 @@ class VoiceSatelliteService() : LifecycleService() {
                 satellite.vadThreshold = settings.vadThreshold
                 satellite.silenceTimeoutSeconds = settings.silenceTimeoutSeconds
             }
+            if (this::presenceDetector.isInitialized) {
+                presenceDetector.updateConfiguration(
+                    settings.presenceMinFaceRatio,
+                    settings.presenceDebounceTime,
+                    settings.presenceDebugLogging
+                )
+            }
         }.launchIn(lifecycleScope)
     }
 

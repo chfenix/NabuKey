@@ -86,7 +86,6 @@ class VoiceSatellite(
     private var pipeline: VoicePipeline? = null
     private var isStopping = false // Prevent re-entrant stop loops
     private var explicitStop = false // Flag to indicate manual/local stop to prevent auto-restart
-    private var currentConversationId: String? = null
     private val vadDetector = VadDetector(context)
     private val speechDetector = SpeechDetector(
         threshold = vadThreshold,
@@ -123,7 +122,6 @@ class VoiceSatellite(
                 "reset_conversation"
             ) {
                 Log.i(TAG, "Resetting conversation context.")
-                currentConversationId = null
                 stopConversation(StopReason.Manual)
             }
         )
@@ -349,14 +347,7 @@ class VoiceSatellite(
         explicitStop = false // Reset explicit stop flag
         isStopping = false // Reset stopping flag
 
-        Log.d(TAG, "wakeSatellite: isContinueConversation=$isContinueConversation, oldId=$currentConversationId")
-
-        if (!isContinueConversation) {
-             currentConversationId = null
-             Log.d(TAG, "Starting new conversation, cleared ID.")
-        } else {
-             Log.d(TAG, "Continuing conversation with ID: $currentConversationId")
-        }
+        Log.d(TAG, "wakeSatellite: isContinueConversation=$isContinueConversation")
 
         lastActivityTime = System.currentTimeMillis()
         lastWakeTime = System.currentTimeMillis()
@@ -401,8 +392,7 @@ class VoiceSatellite(
         onSpeechDetected = {
             Log.d(TAG, "Server VAD detected speech. Resetting local timer.")
             lastActivityTime = System.currentTimeMillis()
-        },
-        initialConversationId = currentConversationId
+        }
     )
 
     private suspend fun stopSatellite() {
@@ -475,8 +465,9 @@ class VoiceSatellite(
         isConversation: Boolean
     ) {
         Log.d(TAG, "TTS finished (continue=$continueConversation, conversationId=$conversationId, error=$hasError, played=$ttsPlayed, isConv=$isConversation)")
-        currentConversationId = conversationId // Persist the ID for context
+        // Removed persistent ID logic as requested
         sendMessage(voiceAssistantAnnounceFinished { })
+
         
         // If explicitly stopped (e.g. manual button or timeout), do NOT continue
         if (explicitStop) {

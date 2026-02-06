@@ -28,7 +28,10 @@ data class VoiceSatelliteSettings(
     val autoStart: Boolean = true,
     val forceContinuousConversation: Boolean = false,
     val vadThreshold: Float = 0.5f,
-    val silenceTimeoutSeconds: Int = 5
+    val silenceTimeoutSeconds: Int = 5,
+    val presenceMinFaceRatio: Float = 0.15f,
+    val presenceDebounceTime: Long = 3000L,
+    val presenceDebugLogging: Boolean = true
 )
 
 private val DEFAULT = VoiceSatelliteSettings()
@@ -68,6 +71,10 @@ interface VoiceSatelliteSettingsStore : SettingsStore<VoiceSatelliteSettings> {
 
     val silenceTimeoutSeconds: SettingState<Int>
 
+    val presenceMinFaceRatio: SettingState<Float>
+    val presenceDebounceTime: SettingState<Long>
+    val presenceDebugLogging: SettingState<Boolean>
+
     /**
      * Ensures that a mac address has been generated and persisted.
      */
@@ -104,6 +111,18 @@ class VoiceSatelliteSettingsStoreImpl @Inject constructor(@ApplicationContext co
 
     override val silenceTimeoutSeconds = SettingState(getFlow().map { it.silenceTimeoutSeconds }) { value ->
         update { it.copy(silenceTimeoutSeconds = value) }
+    }
+
+    override val presenceMinFaceRatio = SettingState(getFlow().map { it.presenceMinFaceRatio }) { value ->
+        update { it.copy(presenceMinFaceRatio = value) }
+    }
+
+    override val presenceDebounceTime = SettingState(getFlow().map { it.presenceDebounceTime }) { value ->
+        update { it.copy(presenceDebounceTime = value) }
+    }
+
+    override val presenceDebugLogging = SettingState(getFlow().map { it.presenceDebugLogging }) { value ->
+        update { it.copy(presenceDebugLogging = value) }
     }
 
     override suspend fun ensureMacAddressIsSet() {

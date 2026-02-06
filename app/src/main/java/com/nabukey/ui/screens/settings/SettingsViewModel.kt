@@ -130,6 +130,29 @@ class SettingsViewModel @Inject constructor(
     fun validateSilenceTimeout(timeout: Int?): String? =
         if (timeout == null || timeout <= 0) "Must be > 0" else null
 
+    suspend fun savePresenceMinFaceRatio(ratio: Float?) {
+        val valid = ratio != null && ratio >= 0.0f && ratio <= 1.0f
+        if (valid) {
+            satelliteSettingsStore.presenceMinFaceRatio.set(ratio!!)
+        }
+    }
+
+    fun validatePresenceMinFaceRatio(ratio: Float?): String? =
+        if (ratio == null || ratio < 0.0f || ratio > 1.0f) "Must be 0.0 - 1.0" else null
+
+    suspend fun savePresenceDebounceTime(time: Long?) {
+         if (time != null && time > 0) {
+             satelliteSettingsStore.presenceDebounceTime.set(time)
+         }
+    }
+
+    fun validatePresenceDebounceTime(time: Long?): String? =
+        if (time == null || time <= 0) "Must be > 0" else null
+
+    suspend fun savePresenceDebugLogging(enabled: Boolean) {
+        satelliteSettingsStore.presenceDebugLogging.set(enabled)
+    }
+
     suspend fun validateWakeWord(wakeWordId: String): String? {
         val wakeWordWithId = microphoneSettingsStore.availableWakeWords.first()
             .firstOrNull { it.id == wakeWordId }

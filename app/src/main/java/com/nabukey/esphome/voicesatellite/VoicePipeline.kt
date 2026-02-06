@@ -27,11 +27,10 @@ class VoicePipeline(
     private val listeningChanged: (listening: Boolean) -> Unit,
     private val stateChanged: (state: EspHomeState) -> Unit,
     private val ended: (continueConversation: Boolean, conversationId: String?, hasError: Boolean, ttsPlayed: Boolean) -> Unit,
-    private val onSpeechDetected: () -> Unit = {},
-    private val initialConversationId: String? = null
+    private val onSpeechDetected: () -> Unit = {}
 ) {
     private var continueConversation = false
-    private var conversationId: String? = initialConversationId
+    private var conversationId: String? = null
     private var hasError = false
     private val micAudioBuffer = ArrayDeque<ByteString>()
     private var isRunning = false
@@ -52,7 +51,6 @@ class VoicePipeline(
         sendMessage(voiceAssistantRequest {
             start = true
             this.wakeWordPhrase = wakeWordPhrase
-            initialConversationId?.let { this.conversationId = it }
         })
     }
 
