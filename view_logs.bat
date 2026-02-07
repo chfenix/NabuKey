@@ -1,4 +1,5 @@
 @echo off
+chcp 65001
 echo ============================================
 echo   NabuKey Presence Detector Log Viewer
 echo ============================================
@@ -8,7 +9,7 @@ echo (Press Ctrl+C to stop)
 echo.
 
 :: Using -v time to show timestamps
-:: Using findstr for filtering to ensure it works on vanilla Windows
-adb logcat -v time | findstr PresenceDetector
+:: Using findstr to show PresenceDetector, VoiceSatelliteService, and VoicePipeline logs
+adb logcat -v time | findstr /C:"PresenceDetector" /C:"VoiceSatellite" /C:"VoicePipeline" /C:"HAConnection" /C:"Microphone" /C:"Sherpa" /C:"VadDetector"
 
 pause
