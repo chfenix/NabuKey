@@ -26,12 +26,12 @@ data class VoiceSatelliteSettings(
     val serverPort: Int = 6053,
     val macAddress: String = DEFAULT_MAC_ADDRESS,
     val autoStart: Boolean = true,
-    val forceContinuousConversation: Boolean = false,
+    val forceContinuousConversation: Boolean = true,
     val vadThreshold: Float = 0.5f,
     val silenceTimeoutSeconds: Int = 5,
-    val presenceMinFaceRatio: Float = 0.15f,
+    val presenceMinFaceRatio: Float = 0.1f,
     val presenceDebounceTime: Long = 3000L,
-    val presenceDebugLogging: Boolean = true
+    val presenceDebugLogging: Boolean = false
 )
 
 private val DEFAULT = VoiceSatelliteSettings()

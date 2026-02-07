@@ -79,7 +79,7 @@ fun VoiceSatelliteSettings(
             SwitchSetting(
                 name = stringResource(R.string.label_voice_satellite_force_continuous),
                 description = stringResource(R.string.description_voice_satellite_force_continuous),
-                value = satelliteState?.forceContinuousConversation ?: false,
+                value = satelliteState?.forceContinuousConversation ?: true,
                 enabled = enabled,
                 onCheckedChange = {
                     coroutineScope.launch {
@@ -181,7 +181,7 @@ fun VoiceSatelliteSettings(
             TextSetting(
                 name = stringResource(R.string.label_presence_min_face_ratio),
                 description = stringResource(R.string.description_presence_min_face_ratio),
-                value = satelliteState?.presenceMinFaceRatio?.toString() ?: "0.15",
+                value = satelliteState?.presenceMinFaceRatio?.toString() ?: "0.1",
                 enabled = enabled,
                 validation = { viewModel.validatePresenceMinFaceRatio(it.toFloatOrNull()) },
                 onConfirmRequest = {
@@ -211,7 +211,7 @@ fun VoiceSatelliteSettings(
             SwitchSetting(
                 name = stringResource(R.string.label_presence_debug_logging),
                 description = stringResource(R.string.description_presence_debug_logging),
-                value = satelliteState?.presenceDebugLogging ?: true,
+                value = satelliteState?.presenceDebugLogging ?: false,
                 enabled = enabled,
                 onCheckedChange = {
                     coroutineScope.launch {
