@@ -14,6 +14,7 @@ import com.nabukey.ui.screens.settings.components.IntSetting
 import com.nabukey.ui.screens.settings.components.SelectSetting
 import com.nabukey.ui.screens.settings.components.SwitchSetting
 import com.nabukey.ui.screens.settings.components.TextSetting
+import com.nabukey.ui.screens.settings.components.TimeSetting
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
@@ -216,6 +217,79 @@ fun VoiceSatelliteSettings(
                 onCheckedChange = {
                     coroutineScope.launch {
                         viewModel.savePresenceDebugLogging(it)
+                    }
+                }
+            )
+        }
+        item {
+            TimeSetting(
+                name = stringResource(R.string.label_presence_work_hours_start),
+                hour = satelliteState?.presenceWorkHoursStart,
+                minute = satelliteState?.presenceWorkMinutesStart,
+                enabled = enabled,
+                validation = { hour, minute ->
+                    viewModel.validatePresenceWorkTimeRange(
+                        startHour = hour,
+                        startMinute = minute,
+                        endHour = satelliteState?.presenceWorkHoursEnd,
+                        endMinute = satelliteState?.presenceWorkMinutesEnd
+                    )
+                },
+                onConfirmRequest = { hour, minute ->
+                    if (satelliteState != null) {
+                        coroutineScope.launch {
+                            viewModel.savePresenceWorkTimeStart(hour, minute)
+                        }
+                    }
+                }
+            )
+        }
+        item {
+            TimeSetting(
+                name = stringResource(R.string.label_presence_work_hours_end),
+                hour = satelliteState?.presenceWorkHoursEnd,
+                minute = satelliteState?.presenceWorkMinutesEnd,
+                enabled = enabled,
+                validation = { hour, minute ->
+                    viewModel.validatePresenceWorkTimeRange(
+                        startHour = satelliteState?.presenceWorkHoursStart,
+                        startMinute = satelliteState?.presenceWorkMinutesStart,
+                        endHour = hour,
+                        endMinute = minute
+                    )
+                },
+                onConfirmRequest = { hour, minute ->
+                    if (satelliteState != null) {
+                        coroutineScope.launch {
+                            viewModel.savePresenceWorkTimeEnd(hour, minute)
+                        }
+                    }
+                }
+            )
+        }
+        item {
+            SwitchSetting(
+                name = stringResource(R.string.label_presence_work_days_only),
+                description = stringResource(R.string.description_presence_work_days_only),
+                value = satelliteState?.presenceWorkDaysOnly ?: true,
+                enabled = enabled,
+                onCheckedChange = {
+                    coroutineScope.launch {
+                        viewModel.savePresenceWorkDaysOnly(it)
+                    }
+                }
+            )
+        }
+        item {
+            TextSetting(
+                name = stringResource(R.string.label_ha_workday_entity_id),
+                description = stringResource(R.string.description_ha_workday_entity_id),
+                value = satelliteState?.haWorkdayEntityId ?: "binary_sensor.workday_sensor",
+                enabled = enabled,
+                validation = { viewModel.validateHaWorkdayEntityId(it) },
+                onConfirmRequest = {
+                    coroutineScope.launch {
+                        viewModel.saveHaWorkdayEntityId(it)
                     }
                 }
             )

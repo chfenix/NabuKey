@@ -17,6 +17,9 @@ import com.example.esphomeproto.api.VoiceAssistantAnnounceRequest
 import com.example.esphomeproto.api.VoiceAssistantConfigurationRequest
 import com.example.esphomeproto.api.VoiceAssistantEventResponse
 import com.example.esphomeproto.api.VoiceAssistantFeature
+import com.example.esphomeproto.api.HomeAssistantStateResponse
+import com.example.esphomeproto.api.SubscribeHomeAssistantStateResponse
+import com.example.esphomeproto.api.SubscribeHomeAssistantStatesRequest
 import com.example.esphomeproto.api.VoiceAssistantSetConfiguration
 import com.example.esphomeproto.api.VoiceAssistantTimerEvent
 import com.example.esphomeproto.api.VoiceAssistantTimerEventResponse
@@ -55,7 +58,9 @@ class VoiceSatellite(
     val audioInput: VoiceSatelliteAudioInput,
     val player: VoiceSatellitePlayer,
     val settingsStore: VoiceSatelliteSettingsStore,
-    val presenceFlow: Flow<Boolean>
+    val presenceFlow: Flow<Boolean>,
+    private val haWorkdayEntityId: String = DEFAULT_HA_WORKDAY_ENTITY_ID,
+    private val onHaWorkdayStateChanged: (Boolean?) -> Unit = {}
 ) : EspHomeDevice(
     coroutineContext,
     name,
@@ -150,6 +155,7 @@ class VoiceSatellite(
         pipeline = null
         timerFinished = false
         player.ttsPlayer.stop()
+        onHaWorkdayStateChanged(null)
     }
 
     override suspend fun getDeviceInfo(): DeviceInfoResponse = deviceInfoResponse {
@@ -201,7 +207,35 @@ class VoiceSatellite(
 
             is VoiceAssistantTimerEventResponse -> handleTimerMessage(message)
 
+            is SubscribeHomeAssistantStatesRequest -> {
+                super.handleMessage(message)
+                requestHaWorkdayStateOnce()
+            }
+
+            is HomeAssistantStateResponse -> {
+                if (message.entityId == haWorkdayEntityId) {
+                    onHaWorkdayStateChanged(parseBooleanState(message.state))
+                }
+            }
+
             else -> super.handleMessage(message)
+        }
+    }
+
+    private suspend fun requestHaWorkdayStateOnce() {
+        sendMessage(
+            SubscribeHomeAssistantStateResponse.newBuilder()
+                .setEntityId(haWorkdayEntityId)
+                .setOnce(true)
+                .build()
+        )
+    }
+
+    private fun parseBooleanState(value: String): Boolean? {
+        return when (value.trim().lowercase()) {
+            "on", "true", "1" -> true
+            "off", "false", "0" -> false
+            else -> null
         }
     }
 
@@ -540,5 +574,6 @@ class VoiceSatellite(
 
     companion object {
         private const val TAG = "VoiceSatellite"
+        private const val DEFAULT_HA_WORKDAY_ENTITY_ID = "binary_sensor.workday_sensor"
     }
 }

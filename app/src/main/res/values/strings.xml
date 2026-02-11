@@ -30,6 +30,17 @@
     <string name="label_presence_debug_logging">Presence Debug Logging</string>
     <string name="description_presence_debug_logging">Show detailed logs for face detection events</string>
 
+    <string name="label_presence_work_hours_start">Start Time</string>
+    <string name="label_presence_work_hours_end">End Time</string>
+    <string name="label_presence_work_days_only">Workdays Only</string>
+    <string name="description_presence_work_days_only">Only detect presence Monday to Friday</string>
+    <string name="label_ha_workday_entity_id">HA Workday Entity ID</string>
+    <string name="description_ha_workday_entity_id">Home Assistant entity for workday status, e.g. binary_sensor.workday_sensor</string>
+    <string name="validation_presence_work_time_invalid">Invalid time value</string>
+    <string name="validation_presence_work_time_range">Start time cannot be later than end time</string>
+    <string name="validation_ha_workday_entity_id_empty">Entity ID cannot be empty</string>
+    <string name="validation_ha_workday_entity_id_invalid">Entity ID format must be domain.object_id</string>
+
     <string name="validation_voice_satellite_name_empty">Name cannot be empty</string>
     <string name="validation_voice_satellite_port_invalid">Port must be between 1 and 65535</string>
     <string name="validation_voice_satellite_wake_word_invalid">Wake word not found</string>

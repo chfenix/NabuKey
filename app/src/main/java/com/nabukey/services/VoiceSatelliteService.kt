@@ -44,6 +44,7 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 
@@ -63,6 +64,8 @@ class VoiceSatelliteService() : LifecycleService() {
     private var voiceSatelliteNsd = AtomicReference<NsdRegistration?>(null)
     private val _voiceSatellite = MutableStateFlow<VoiceSatellite?>(null)
     private lateinit var presenceDetector: PresenceDetector
+    private var haWorkdayState: Boolean? = null
+    private var haWorkdayEpochDay: Long? = null
 
     val voiceSatelliteState = _voiceSatellite.flatMapLatest {
         it?.state ?: flowOf(Stopped)
@@ -175,10 +178,26 @@ class VoiceSatelliteService() : LifecycleService() {
                 presenceDetector.updateConfiguration(
                     settings.presenceMinFaceRatio,
                     settings.presenceDebounceTime,
-                    settings.presenceDebugLogging
+                    settings.presenceDebugLogging,
+                    settings.presenceWorkHoursStart,
+                    settings.presenceWorkMinutesStart,
+                    settings.presenceWorkHoursEnd,
+                    settings.presenceWorkMinutesEnd,
+                    settings.presenceWorkDaysOnly
                 )
+                val today = LocalDate.now().toEpochDay()
+                val currentHaState = if (haWorkdayEpochDay == today) haWorkdayState else null
+                presenceDetector.updateHaWorkdayState(currentHaState)
             }
         }.launchIn(lifecycleScope)
+    }
+
+    private fun updateHaWorkdayState(isWorkday: Boolean?) {
+        haWorkdayState = isWorkday
+        haWorkdayEpochDay = if (isWorkday == null) null else LocalDate.now().toEpochDay()
+        if (this::presenceDetector.isInitialized) {
+            presenceDetector.updateHaWorkdayState(isWorkday)
+        }
     }
 
     private suspend fun createVoiceSatellite(satelliteSettings: VoiceSatelliteSettings): VoiceSatellite {
@@ -224,7 +243,11 @@ class VoiceSatelliteService() : LifecycleService() {
             audioInput = audioInput,
             player = player,
             settingsStore = satelliteSettingsStore,
-            presenceFlow = presenceDetector.isPresent
+            presenceFlow = presenceDetector.isPresent,
+            haWorkdayEntityId = satelliteSettings.haWorkdayEntityId,
+            onHaWorkdayStateChanged = { isWorkday ->
+                updateHaWorkdayState(isWorkday)
+            }
         )
     }
 

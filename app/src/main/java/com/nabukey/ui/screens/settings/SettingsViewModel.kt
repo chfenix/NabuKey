@@ -153,6 +153,90 @@ class SettingsViewModel @Inject constructor(
         satelliteSettingsStore.presenceDebugLogging.set(enabled)
     }
 
+    private fun isValidHour(hour: Int?) = hour != null && hour in 0..23
+
+    private fun isValidMinute(minute: Int?) = minute != null && minute in 0..59
+
+    private fun toMinutes(hour: Int, minute: Int): Int = hour * 60 + minute
+
+    fun validatePresenceWorkTimeRange(
+        startHour: Int?,
+        startMinute: Int?,
+        endHour: Int?,
+        endMinute: Int?
+    ): String? {
+        if (!isValidHour(startHour) || !isValidMinute(startMinute) || !isValidHour(endHour) || !isValidMinute(endMinute)) {
+            return context.getString(R.string.validation_presence_work_time_invalid)
+        }
+        val start = toMinutes(startHour!!, startMinute!!)
+        val end = toMinutes(endHour!!, endMinute!!)
+        if (start > end) {
+            return context.getString(R.string.validation_presence_work_time_range)
+        }
+        return null
+    }
+
+    suspend fun savePresenceWorkTimeStart(hour: Int?, minute: Int?) {
+        if (!isValidHour(hour) || !isValidMinute(minute)) return
+        val settings = satelliteSettingsStore.get()
+        val validation = validatePresenceWorkTimeRange(
+            startHour = hour,
+            startMinute = minute,
+            endHour = settings.presenceWorkHoursEnd,
+            endMinute = settings.presenceWorkMinutesEnd
+        )
+        if (validation == null) {
+            satelliteSettingsStore.update {
+                it.copy(
+                    presenceWorkHoursStart = hour!!,
+                    presenceWorkMinutesStart = minute!!
+                )
+            }
+        }
+    }
+
+    suspend fun savePresenceWorkTimeEnd(hour: Int?, minute: Int?) {
+        if (!isValidHour(hour) || !isValidMinute(minute)) return
+        val settings = satelliteSettingsStore.get()
+        val validation = validatePresenceWorkTimeRange(
+            startHour = settings.presenceWorkHoursStart,
+            startMinute = settings.presenceWorkMinutesStart,
+            endHour = hour,
+            endMinute = minute
+        )
+        if (validation == null) {
+            satelliteSettingsStore.update {
+                it.copy(
+                    presenceWorkHoursEnd = hour!!,
+                    presenceWorkMinutesEnd = minute!!
+                )
+            }
+        }
+    }
+
+    suspend fun savePresenceWorkDaysOnly(enabled: Boolean) {
+        satelliteSettingsStore.presenceWorkDaysOnly.set(enabled)
+    }
+
+    fun validateHaWorkdayEntityId(entityId: String): String? {
+        val trimmed = entityId.trim()
+        if (trimmed.isBlank()) {
+            return context.getString(R.string.validation_ha_workday_entity_id_empty)
+        }
+        val valid = Regex("^[a-z0-9_]+\\.[a-z0-9_]+$").matches(trimmed)
+        if (!valid) {
+            return context.getString(R.string.validation_ha_workday_entity_id_invalid)
+        }
+        return null
+    }
+
+    suspend fun saveHaWorkdayEntityId(entityId: String) {
+        val trimmed = entityId.trim()
+        if (validateHaWorkdayEntityId(trimmed) == null) {
+            satelliteSettingsStore.haWorkdayEntityId.set(trimmed)
+        }
+    }
+
     suspend fun validateWakeWord(wakeWordId: String): String? {
         val wakeWordWithId = microphoneSettingsStore.availableWakeWords.first()
             .firstOrNull { it.id == wakeWordId }

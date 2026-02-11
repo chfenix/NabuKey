@@ -31,7 +31,13 @@ data class VoiceSatelliteSettings(
     val silenceTimeoutSeconds: Int = 5,
     val presenceMinFaceRatio: Float = 0.1f,
     val presenceDebounceTime: Long = 3000L,
-    val presenceDebugLogging: Boolean = false
+    val presenceDebugLogging: Boolean = false,
+    val presenceWorkHoursStart: Int = 9,
+    val presenceWorkMinutesStart: Int = 0,
+    val presenceWorkHoursEnd: Int = 18,
+    val presenceWorkMinutesEnd: Int = 0,
+    val presenceWorkDaysOnly: Boolean = true,
+    val haWorkdayEntityId: String = "binary_sensor.workday_sensor"
 )
 
 private val DEFAULT = VoiceSatelliteSettings()
@@ -74,6 +80,12 @@ interface VoiceSatelliteSettingsStore : SettingsStore<VoiceSatelliteSettings> {
     val presenceMinFaceRatio: SettingState<Float>
     val presenceDebounceTime: SettingState<Long>
     val presenceDebugLogging: SettingState<Boolean>
+    val presenceWorkHoursStart: SettingState<Int>
+    val presenceWorkMinutesStart: SettingState<Int>
+    val presenceWorkHoursEnd: SettingState<Int>
+    val presenceWorkMinutesEnd: SettingState<Int>
+    val presenceWorkDaysOnly: SettingState<Boolean>
+    val haWorkdayEntityId: SettingState<String>
 
     /**
      * Ensures that a mac address has been generated and persisted.
@@ -123,6 +135,30 @@ class VoiceSatelliteSettingsStoreImpl @Inject constructor(@ApplicationContext co
 
     override val presenceDebugLogging = SettingState(getFlow().map { it.presenceDebugLogging }) { value ->
         update { it.copy(presenceDebugLogging = value) }
+    }
+
+    override val presenceWorkHoursStart = SettingState(getFlow().map { it.presenceWorkHoursStart }) { value ->
+        update { it.copy(presenceWorkHoursStart = value) }
+    }
+
+    override val presenceWorkMinutesStart = SettingState(getFlow().map { it.presenceWorkMinutesStart }) { value ->
+        update { it.copy(presenceWorkMinutesStart = value) }
+    }
+
+    override val presenceWorkHoursEnd = SettingState(getFlow().map { it.presenceWorkHoursEnd }) { value ->
+        update { it.copy(presenceWorkHoursEnd = value) }
+    }
+
+    override val presenceWorkMinutesEnd = SettingState(getFlow().map { it.presenceWorkMinutesEnd }) { value ->
+        update { it.copy(presenceWorkMinutesEnd = value) }
+    }
+
+    override val presenceWorkDaysOnly = SettingState(getFlow().map { it.presenceWorkDaysOnly }) { value ->
+        update { it.copy(presenceWorkDaysOnly = value) }
+    }
+
+    override val haWorkdayEntityId = SettingState(getFlow().map { it.haWorkdayEntityId }) { value ->
+        update { it.copy(haWorkdayEntityId = value) }
     }
 
     override suspend fun ensureMacAddressIsSet() {
