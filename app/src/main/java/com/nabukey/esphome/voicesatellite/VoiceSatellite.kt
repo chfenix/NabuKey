@@ -117,7 +117,8 @@ class VoiceSatellite(
                 "Stop Conversation",
                 "stop_conversation"
             ) {
-                stopConversation(StopReason.Manual)
+                // Called by HA automations/intents; prefer graceful stop so current TTS can finish.
+                stopConversation(StopReason.Server)
             }
         )
         addEntity(
@@ -460,6 +461,14 @@ class VoiceSatellite(
         explicitStop = true // Set flag to prevent restart loops
 
         scope.launch {
+            // For HA-triggered stop requests, avoid cutting off the assistant response if
+            // we're already in the response path. Let onTtsFinished stop cleanly.
+            if (reason == StopReason.Server && (_state.value == Processing || _state.value == Responding)) {
+                Log.d(TAG, "Deferring server stop until current response finishes.")
+                isStopping = false
+                return@launch
+            }
+
             // Determine if we should play the exit sound
             // We usually play it for Manual stops, Keyword stops, or Timeouts (to indicate we gave up listening)
             val shouldPlayExitSound = when (reason) {
