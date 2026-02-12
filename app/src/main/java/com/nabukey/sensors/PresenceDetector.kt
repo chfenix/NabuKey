@@ -13,9 +13,13 @@ import androidx.lifecycle.LifecycleOwner
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetectorOptions
-import com.google.mlkit.vision.face.Face
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.util.concurrent.Executors
 
@@ -38,6 +42,11 @@ class PresenceDetector(
     private var workDaysOnly = true
     private var haWorkdayState: Boolean? = null
     private var haWorkdayStateEpochDay: Long? = null
+    private var cameraProvider: ProcessCameraProvider? = null
+    private var imageAnalysis: ImageAnalysis? = null
+    private var isStarted = false
+    private var isCameraBound = false
+    private var scheduleWatcherJob: Job? = null
 
     private val cameraExecutor = Executors.newSingleThreadExecutor()
     private val faceDetector = FaceDetection.getClient(
@@ -71,6 +80,7 @@ class PresenceDetector(
             val endTime = String.format("%02d:%02d", workHoursEnd, workMinutesEnd)
             Log.d(TAG, "Config: faceRatio=$minFaceRatio, grace=$gracePeriodMs, debug=$debugLogging, hours=$startTime-$endTime, workDays=$workDaysOnly")
         }
+        updateCameraBindingForSchedule()
     }
 
     fun updateHaWorkdayState(isWorkday: Boolean?) {
@@ -79,36 +89,92 @@ class PresenceDetector(
         if (debugLogging) {
             Log.d(TAG, "HA workday updated: state=$haWorkdayState, day=$haWorkdayStateEpochDay")
         }
+        updateCameraBindingForSchedule()
     }
 
     fun start() {
         Log.d(TAG, "Starting PresenceDetector")
+        isStarted = true
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener({
             try {
-                val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
-                // Default to front camera
-                val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
-
-                val imageAnalysis = ImageAnalysis.Builder()
+                cameraProvider = cameraProviderFuture.get()
+                imageAnalysis = ImageAnalysis.Builder()
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                    .build()
-                
-                imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
-                    processImage(imageProxy)
-                }
-
-                cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(
-                    lifecycleOwner,
-                    cameraSelector,
-                    imageAnalysis
-                )
-                Log.d(TAG, "Camera bound to lifecycle")
+                    .build().also { analysis ->
+                        analysis.setAnalyzer(cameraExecutor) { imageProxy ->
+                            processImage(imageProxy)
+                        }
+                    }
+                updateCameraBindingForSchedule()
+                startScheduleWatcher()
             } catch (exc: Exception) {
                 Log.e(TAG, "Use case binding failed", exc)
             }
         }, ContextCompat.getMainExecutor(context))
+    }
+
+    private fun startScheduleWatcher() {
+        scheduleWatcherJob?.cancel()
+        scheduleWatcherJob = CoroutineScope(Dispatchers.Default).launch {
+            while (isStarted) {
+                delay(60_000L)
+                updateCameraBindingForSchedule()
+            }
+        }
+    }
+
+    private fun updateCameraBindingForSchedule() {
+        if (!isStarted) return
+        val provider = cameraProvider ?: return
+        val analysis = imageAnalysis ?: return
+        val shouldBind = shouldRunDetectionNow()
+        ContextCompat.getMainExecutor(context).execute {
+            if (shouldBind && !isCameraBound) {
+                try {
+                    provider.unbindAll()
+                    provider.bindToLifecycle(
+                        lifecycleOwner,
+                        CameraSelector.DEFAULT_FRONT_CAMERA,
+                        analysis
+                    )
+                    isCameraBound = true
+                    if (debugLogging) Log.d(TAG, "Camera bound (within work schedule)")
+                } catch (exc: Exception) {
+                    Log.e(TAG, "Camera bind failed", exc)
+                }
+            } else if (!shouldBind && isCameraBound) {
+                provider.unbindAll()
+                isCameraBound = false
+                if (_isPresent.value) _isPresent.value = false
+                if (debugLogging) Log.d(TAG, "Camera unbound (outside work schedule)")
+            }
+        }
+    }
+
+    private fun shouldRunDetectionNow(): Boolean {
+        val cal = java.util.Calendar.getInstance()
+        val hour = cal.get(java.util.Calendar.HOUR_OF_DAY)
+        val minute = cal.get(java.util.Calendar.MINUTE)
+        val dayOfWeek = cal.get(java.util.Calendar.DAY_OF_WEEK)
+        val currentTimeMinutes = hour * 60 + minute
+        val startTimeMinutes = workHoursStart * 60 + workMinutesStart
+        val endTimeMinutes = workHoursEnd * 60 + workMinutesEnd
+
+        if (currentTimeMinutes < startTimeMinutes || currentTimeMinutes >= endTimeMinutes) {
+            return false
+        }
+
+        if (!workDaysOnly) return true
+
+        val todayEpochDay = LocalDate.now().toEpochDay()
+        val hasTodayHaWorkday = haWorkdayState != null && haWorkdayStateEpochDay == todayEpochDay
+        if (hasTodayHaWorkday) {
+            return haWorkdayState == true
+        }
+
+        val isWeekend = dayOfWeek == java.util.Calendar.SATURDAY || dayOfWeek == java.util.Calendar.SUNDAY
+        return !isWeekend
     }
 
     @OptIn(ExperimentalGetImage::class)
@@ -210,10 +276,11 @@ class PresenceDetector(
     
     fun stop() {
         Log.d(TAG, "Stopping PresenceDetector")
-        // Just shutdown executor, camera unbinds with lifecycle
-        // But if we want to explicitly unbind:
-        // ProcessCameraProvider.getInstance(context).get().unbindAll() 
-        // (but async)
+        isStarted = false
+        scheduleWatcherJob?.cancel()
+        cameraProvider?.unbindAll()
+        isCameraBound = false
+        if (_isPresent.value) _isPresent.value = false
     }
 
     companion object {
